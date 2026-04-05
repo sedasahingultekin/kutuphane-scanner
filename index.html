@@ -31,6 +31,22 @@
       margin:0 auto;
     }
 
+    .topBar{
+      display:flex;
+      justify-content:flex-end;
+      margin-bottom:10px;
+    }
+
+    .gearBtn{
+      border:none;
+      background:white;
+      border-radius:14px;
+      padding:12px 16px;
+      font-size:28px;
+      cursor:pointer;
+      box-shadow:0 4px 12px rgba(0,0,0,0.10);
+    }
+
     .header{
       background:#F28400;
       color:white;
@@ -129,6 +145,10 @@
 </head>
 <body>
   <div class="app">
+    <div class="topBar">
+      <button class="gearBtn" onclick="ayarlarForm()">⚙️</button>
+    </div>
+
     <div class="header">📚 Kütüphane Takip</div>
     <div class="subInfo">Modüler JS altyapısı aktif</div>
 
@@ -166,5 +186,6 @@
   <script src="./js/odunc.js"></script>
   <script src="./js/iade.js"></script>
   <script src="./js/sil.js"></script>
+  <script src="./js/ayarlar.js"></script>
 </body>
 </html>
