@@ -325,7 +325,7 @@ function oduncVerForm() {
   }, 100);
 }
 
-async function oduncKitapBul() {
+async function oduncKitapBul(suppressStatusMessage = false) {
   oduncTemizMesaj();
   window.seciliOduncKitap = null;
 
@@ -350,6 +350,10 @@ async function oduncKitapBul() {
     window.seciliOduncKitap = kitap;
 
     if (alan) alan.innerHTML = oduncKitapKartHtml(kitap);
+
+    if (suppressStatusMessage) {
+      return;
+    }
 
     if (String(kitap.durum || '').toUpperCase() === 'ÖDÜNÇTE') {
       oduncMesajGoster('Bu kitap zaten ödünçte', 'error');
@@ -393,9 +397,9 @@ async function oduncVer() {
       return;
     }
 
+    await oduncKitapBul(true);
     oduncMesajGoster(sonuc.message || 'Kitap ödünç verildi', 'success');
     document.getElementById('oduncAlan').value = '';
-    await oduncKitapBul();
   } catch (err) {
     oduncMesajGoster('Ödünç verme hatası: ' + err.message, 'error');
   }
