@@ -14,7 +14,9 @@ function silMesajGoster(mesaj, tip = 'success') {
 
 function silKitapKartHtml(kitap) {
   const durum = String(kitap.durum || 'RAFTA').toUpperCase();
-  const badgeClass = durum === 'ÖDÜNÇTE' ? 'oduncte' : 'rafta';
+  let badgeClass = 'rafta';
+  if (durum === 'ÖDÜNÇTE') badgeClass = 'oduncte';
+  if (durum === 'KAYIP') badgeClass = 'oduncte';
 
   return `
     <div class="kitapKart">
@@ -160,6 +162,7 @@ function silForm() {
       }
 
       .redBtn{ background:#b91c1c; }
+      .orangeBtn{ background:#c2410c; }
       .blueBtn{ background:#0b57d0; }
       .grayBtn{ background:#6b7280; }
       .secondaryBtn{ background:#444; }
@@ -308,6 +311,7 @@ function silForm() {
 
       <div id="silKitapAlani"></div>
 
+      <button class="actionBtn orangeBtn" onclick="kitapKayipYap()">Kayıp Olarak İşaretle</button>
       <button class="actionBtn redBtn" onclick="kitapSil()">Kitabı Sil</button>
 
       <div id="mesajKutusu" class="mesajKutusu"></div>
@@ -345,9 +349,53 @@ async function silKitapBul() {
 
     if (alan) alan.innerHTML = silKitapKartHtml(kitap);
 
-    silMesajGoster('Kitap bulundu', 'success');
+    if (String(kitap.durum || '').toUpperCase() === 'ÖDÜNÇTE') {
+      silMesajGoster('Bu kitap ödünçte. Silmek yerine kayıp olarak işaretleyebilirsin.', 'warn');
+    } else if (String(kitap.durum || '').toUpperCase() === 'KAYIP') {
+      silMesajGoster('Bu kitap zaten kayıp olarak işaretlenmiş.', 'warn');
+    } else {
+      silMesajGoster('Kitap bulundu', 'success');
+    }
   } catch (err) {
     silMesajGoster('Arama hatası: ' + err.message, 'error');
+  }
+}
+
+async function kitapKayipYap() {
+  silTemizMesaj();
+
+  const kitap = window.seciliSilKitap;
+  if (!kitap) {
+    silMesajGoster('Önce kitabı bulun', 'warn');
+    return;
+  }
+
+  if (String(kitap.durum || '').toUpperCase() === 'KAYIP') {
+    silMesajGoster('Bu kitap zaten kayıp olarak işaretlenmiş', 'warn');
+    return;
+  }
+
+  const onay = confirm(
+    `${kitap.kitapAdi || 'Bu kitabı'} kayıp olarak işaretlemek istiyor musun?`
+  );
+
+  if (!onay) return;
+
+  try {
+    const sonuc = await silApiPost({
+      action: 'markLost',
+      id: kitap.id
+    });
+
+    if (!sonuc.ok) {
+      silMesajGoster(sonuc.error || 'Kayıp işaretleme hatası', 'error');
+      return;
+    }
+
+    silMesajGoster(sonuc.message || 'Kitap kayıp olarak işaretlendi', 'success');
+    await silKitapBul();
+  } catch (err) {
+    silMesajGoster('Kayıp işaretleme hatası: ' + err.message, 'error');
   }
 }
 
@@ -357,6 +405,11 @@ async function kitapSil() {
   const kitap = window.seciliSilKitap;
   if (!kitap) {
     silMesajGoster('Önce kitabı bulun', 'warn');
+    return;
+  }
+
+  if (String(kitap.durum || '').toUpperCase() === 'ÖDÜNÇTE') {
+    silMesajGoster('Ödünçte olan kitap silinemez. Kayıp olarak işaretleyebilirsin.', 'error');
     return;
   }
 
