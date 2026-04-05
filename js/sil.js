@@ -323,7 +323,7 @@ function silForm() {
   }, 100);
 }
 
-async function silKitapBul() {
+async function silKitapBul(suppressStatusMessage = false) {
   silTemizMesaj();
   window.seciliSilKitap = null;
 
@@ -348,6 +348,10 @@ async function silKitapBul() {
     window.seciliSilKitap = kitap;
 
     if (alan) alan.innerHTML = silKitapKartHtml(kitap);
+
+    if (suppressStatusMessage) {
+      return;
+    }
 
     if (String(kitap.durum || '').toUpperCase() === 'ÖDÜNÇTE') {
       silMesajGoster('Bu kitap ödünçte. Silmek yerine kayıp olarak işaretleyebilirsin.', 'warn');
@@ -392,8 +396,8 @@ async function kitapKayipYap() {
       return;
     }
 
+    await silKitapBul(true);
     silMesajGoster(sonuc.message || 'Kitap kayıp olarak işaretlendi', 'success');
-    await silKitapBul();
   } catch (err) {
     silMesajGoster('Kayıp işaretleme hatası: ' + err.message, 'error');
   }
