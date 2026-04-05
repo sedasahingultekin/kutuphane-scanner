@@ -104,7 +104,29 @@
       margin-top:18px;
     }
 
-    .note{
+    .message{
+      display:none;
+      margin-top:14px;
+      padding:16px;
+      border-radius:14px;
+      font-size:16px;
+      font-weight:bold;
+      line-height:1.4;
+    }
+
+    .success{
+      display:block;
+      background:#d1fae5;
+      color:#065f46;
+    }
+
+    .error{
+      display:block;
+      background:#fee2e2;
+      color:#991b1b;
+    }
+
+    .muted{
       margin-top:14px;
       font-size:14px;
       color:#666;
@@ -143,12 +165,73 @@
         <option value="gri">Gri</option>
       </select>
 
-      <button class="saveBtn">Kaydet</button>
+      <button class="saveBtn" type="button">Kaydet</button>
 
-      <div class="note">
-        Şimdilik ekran hazırlandı. Bir sonraki adımda bu alanları kullanıcıya özel olarak kaydedeceğiz.
+      <div id="message" class="message"></div>
+
+      <div class="muted">
+        Bu sürümde sayfa Worker’dan kullanıcı ayarlarını okumaya hazır hale getirildi.
       </div>
     </div>
   </div>
+
+  <script>
+    const API_URL = 'https://little-heart-9411.sedasahingultekin.workers.dev';
+
+    function showMessage(text, type = 'success') {
+      const el = document.getElementById('message');
+      el.className = 'message ' + type;
+      el.textContent = text || '';
+    }
+
+    function getUserKey() {
+      let key = localStorage.getItem('kutuphane_user_key');
+      if (!key) {
+        key = 'demo-user';
+        localStorage.setItem('kutuphane_user_key', key);
+      }
+      return key;
+    }
+
+    async function apiPost(payload) {
+      const response = await fetch(API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      return await response.json();
+    }
+
+    async function loadSettings() {
+      try {
+        const result = await apiPost({
+          action: 'settingsGet',
+          userKey: getUserKey()
+        });
+
+        if (!result.ok) {
+          showMessage(result.error || 'Ayarlar alınamadı', 'error');
+          return;
+        }
+
+        const data = result.data || {};
+
+        document.getElementById('kodPrefix').value = data.kodPrefix || 'KTP';
+        document.getElementById('kodAyrac').value = data.kodAyrac || '-';
+        document.getElementById('kodHane').value = data.kodHane || 4;
+        document.getElementById('oduncGun').value = data.oduncGunSayisi || 15;
+        document.getElementById('tema').value = data.tema || 'acik';
+
+        showMessage('Ayarlar yüklendi', 'success');
+      } catch (err) {
+        showMessage('Bağlantı hatası: ' + err.message, 'error');
+      }
+    }
+
+    loadSettings();
+  </script>
 </body>
 </html>
