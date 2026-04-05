@@ -87,6 +87,17 @@
       word-break: break-word;
     }
 
+    .codeBadge {
+      display: inline-block;
+      margin-bottom: 10px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-size: 14px;
+      font-weight: bold;
+      background: #e5e7eb;
+      color: #111827;
+    }
+
     .line {
       font-size: 16px;
       margin: 4px 0;
@@ -194,7 +205,7 @@
   <div class="app">
     <div class="header">📚 Kitap Listesi</div>
 
-    <a class="homeBtn" href="./?v=12">
+    <a class="homeBtn" href="./?v=30">
       <button>🏠 Ana Ekrana Dön</button>
     </a>
 
@@ -204,7 +215,7 @@
       <input
         type="text"
         id="search"
-        placeholder="Kitap adı, yazar veya ISBN ara..."
+        placeholder="Kitap kodu, kitap adı, yazar veya ISBN ara..."
         oninput="renderList()"
       />
     </div>
@@ -278,6 +289,7 @@
 
       if (q) {
         filtered = books.filter(book =>
+          (book.kitapKodu || '').toLowerCase().includes(q) ||
           (book.kitapAdi || '').toLowerCase().includes(q) ||
           (book.yazar || '').toLowerCase().includes(q) ||
           (book.isbn || '').toLowerCase().includes(q)
@@ -306,6 +318,7 @@
 
         return `
           <div class="card">
+            <div class="codeBadge">${safeHtml(book.kitapKodu || '-')}</div>
             <div class="title">${safeHtml(book.kitapAdi || '-')}</div>
             <div class="line"><strong>Yazar:</strong> ${safeHtml(book.yazar || '-')}</div>
             <div class="line"><strong>ISBN:</strong> ${safeHtml(book.isbn || '-')}</div>
