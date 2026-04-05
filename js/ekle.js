@@ -1,5 +1,3 @@
-const API_URL = 'https://little-heart-9411.sedasahingultekin.workers.dev';
-
 function getUserKey() {
   let key = localStorage.getItem('kutuphane_user_key');
   if (!key) {
