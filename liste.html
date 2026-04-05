@@ -31,6 +31,26 @@
       margin-bottom: 14px;
     }
 
+    .homeBtn {
+      display: block;
+      width: 100%;
+      text-decoration: none;
+      margin-bottom: 14px;
+    }
+
+    .homeBtn button {
+      width: 100%;
+      border: none;
+      border-radius: 18px;
+      padding: 18px;
+      font-size: 22px;
+      font-weight: bold;
+      background: #F28400;
+      color: #fff;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.10);
+    }
+
     .toolbar {
       background: #fff;
       border-radius: 18px;
@@ -173,6 +193,10 @@
 <body>
   <div class="app">
     <div class="header">📚 Kitap Listesi</div>
+
+    <a class="homeBtn" href="./?v=12">
+      <button>🏠 Ana Ekrana Dön</button>
+    </a>
 
     <div id="message" class="message"></div>
 
