@@ -31,32 +31,35 @@
       margin:0 auto;
     }
 
-    .topBar{
+    .headerRow{
       display:flex;
-      justify-content:flex-end;
-      margin-bottom:10px;
-    }
-
-    .gearBtn{
-      border:none;
-      background:white;
-      border-radius:14px;
-      padding:12px 16px;
-      font-size:28px;
-      cursor:pointer;
-      box-shadow:0 4px 12px rgba(0,0,0,0.10);
+      align-items:center;
+      gap:10px;
+      margin-bottom:14px;
     }
 
     .header{
+      flex:1;
       background:#F28400;
       color:white;
       padding:20px;
       border-radius:20px;
       font-size:28px;
       font-weight:bold;
-      margin-bottom:14px;
       text-align:center;
       box-shadow:0 6px 14px rgba(0,0,0,0.15);
+    }
+
+    .gearBtn{
+      border:none;
+      background:white;
+      border-radius:16px;
+      width:64px;
+      min-width:64px;
+      height:64px;
+      font-size:30px;
+      cursor:pointer;
+      box-shadow:0 4px 12px rgba(0,0,0,0.10);
     }
 
     .subInfo{
@@ -129,6 +132,18 @@
     }
 
     @media (max-width:640px){
+      .header{
+        font-size:24px;
+        padding:18px;
+      }
+
+      .gearBtn{
+        width:58px;
+        min-width:58px;
+        height:58px;
+        font-size:28px;
+      }
+
       .icon{
         font-size:72px;
       }
@@ -145,11 +160,11 @@
 </head>
 <body>
   <div class="app">
-    <div class="topBar">
+    <div class="headerRow">
+      <div class="header">📚 Kütüphane Takip</div>
       <button class="gearBtn" onclick="ayarlarForm()">⚙️</button>
     </div>
 
-    <div class="header">📚 Kütüphane Takip</div>
     <div class="subInfo">Modüler JS altyapısı aktif</div>
 
     <div class="grid">
