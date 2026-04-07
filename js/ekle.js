@@ -89,8 +89,8 @@ async function kamerayiBaslatEkle() {
     await window.qrReader.start(
       { facingMode: 'environment' },
       {
-        fps: 10,
-        qrbox: { width: 250, height: 120 }
+        fps: 5,
+        qrbox: { width: 280, height: 90 }
       },
       async (decodedText) => {
         const isbn = temizIsbn(decodedText);
