@@ -63,6 +63,53 @@ async function kameraKapat() {
   } catch (err) {}
 }
 
+async function enUygunArkaKameraIdBul() {
+  try {
+    const devices = await Html5Qrcode.getCameras();
+    if (!devices || !devices.length) return null;
+
+    const arkaKameralar = devices.filter(d => {
+      const name = String(d.label || '').toLowerCase();
+      return (
+        name.includes('back') ||
+        name.includes('rear') ||
+        name.includes('environment') ||
+        name.includes('arka')
+      );
+    });
+
+    if (!arkaKameralar.length) {
+      return null;
+    }
+
+    const puanli = arkaKameralar.map(cam => {
+      const name = String(cam.label || '').toLowerCase();
+      let puan = 0;
+
+      if (name.includes('back')) puan += 5;
+      if (name.includes('rear')) puan += 5;
+      if (name.includes('environment')) puan += 5;
+      if (name.includes('wide')) puan -= 8;
+      if (name.includes('ultra')) puan -= 10;
+      if (name.includes('0.5')) puan -= 10;
+      if (name.includes('telephoto')) puan -= 2;
+      if (name.includes('main')) puan += 8;
+      if (name.includes('1x')) puan += 6;
+
+      return {
+        id: cam.id,
+        label: cam.label || '',
+        puan
+      };
+    });
+
+    puanli.sort((a, b) => b.puan - a.puan);
+    return puanli[0]?.id || null;
+  } catch (err) {
+    return null;
+  }
+}
+
 async function kamerayiBaslatEkle() {
   temizMesaj();
   await kameraKapat();
@@ -86,11 +133,15 @@ async function kamerayiBaslatEkle() {
     window.qrReader = new Html5Qrcode('reader');
     window.sonOkunanKod = '';
 
+    const kameraId = await enUygunArkaKameraIdBul();
+    const kameraAyari = kameraId || { facingMode: 'environment' };
+
     await window.qrReader.start(
-      { facingMode: 'environment' },
+      kameraAyari,
       {
         fps: 5,
-        qrbox: { width: 280, height: 90 }
+        qrbox: { width: 280, height: 90 },
+        aspectRatio: 1.7778
       },
       async (decodedText) => {
         const isbn = temizIsbn(decodedText);
