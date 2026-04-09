@@ -1,99 +1,9 @@
-function oduncTemizMesaj() {
-  const kutu = document.getElementById('mesajKutusu');
-  if (!kutu) return;
-  kutu.className = 'mesajKutusu';
-  kutu.innerHTML = '';
-}
-
-function oduncMesajGoster(mesaj, tip = 'success') {
-  const kutu = document.getElementById('mesajKutusu');
-  if (!kutu) return;
-  kutu.className = 'mesajKutusu mesaj-' + tip;
-  kutu.innerHTML = guvenliYazi(mesaj);
-}
-
-function oduncKitapKartHtml(kitap) {
-  const durum = String(kitap.durum || 'RAFTA').toUpperCase();
-  const badgeClass = durum === 'ÖDÜNÇTE' ? 'oduncte' : 'rafta';
-
-  return `
-    <div class="kitapKart">
-      <div class="kitapBaslik">${guvenliYazi(kitap.kitapAdi || '-')}</div>
-      <div class="kitapSatir"><strong>Kitap Kodu:</strong> ${guvenliYazi(kitap.kitapKodu || '-')}</div>
-      <div class="kitapSatir"><strong>Yazar:</strong> ${guvenliYazi(kitap.yazar || '-')}</div>
-      <div class="kitapSatir"><strong>ISBN:</strong> ${guvenliYazi(kitap.isbn || '-')}</div>
-      <div class="kitapSatir"><strong>Yayınevi:</strong> ${guvenliYazi(kitap.yayinevi || '-')}</div>
-      <div class="kitapSatir"><strong>Yıl:</strong> ${guvenliYazi(kitap.yayinYili || '-')}</div>
-      <div class="kitapSatir"><strong>Ödünç Alan:</strong> ${guvenliYazi(kitap.oduncAlan || '-')}</div>
-      <div class="kitapSatir"><strong>Ödünç Tarihi:</strong> ${guvenliYazi(kitap.oduncTarihi || '-')}</div>
-      <div class="kitapSatir"><strong>İade Tarihi:</strong> ${guvenliYazi(kitap.iadeTarihi || '-')}</div>
-      <div class="durumBadge ${badgeClass}">${guvenliYazi(durum)}</div>
-    </div>
-  `;
-}
-
-async function oduncApiPost(payload) {
-  const response = await fetch(API_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(payload)
-  });
-
-  return await response.json();
-}
-
-async function oduncTumKitaplariGetir() {
-  const sonuc = await oduncApiPost({ action: 'booksList' });
-  if (!sonuc.ok) {
-    throw new Error(sonuc.error || 'Kitap listesi alınamadı');
-  }
-  return sonuc.data || [];
-}
-
-async function kameraKapatOdunc() {
-  try {
-    if (window.KutuphaneCamera) {
-      await window.KutuphaneCamera.stop();
-    }
-    const wrap = document.getElementById('scannerWrap');
-    const reader = document.getElementById('reader');
-    if (wrap) wrap.style.display = 'none';
-    if (reader) reader.innerHTML = '';
-  } catch (err) {}
-}
-
 async function kamerayiBaslatOdunc() {
-  oduncTemizMesaj();
-
-  if (!window.KutuphaneCamera) {
-    oduncMesajGoster('Kamera modülü yüklenemedi', 'error');
-    return;
-  }
-
-  try {
-    await window.KutuphaneCamera.start({
-      readerId: 'reader',
-      wrapId: 'scannerWrap',
-      config: {
-        fps: 5,
-        qrbox: { width: 280, height: 90 },
-        aspectRatio: 1.7778
-      },
-      onDetected: async (isbn) => {
-        const isbnInput = document.getElementById('oduncIsbn');
-        if (isbnInput) isbnInput.value = isbn;
-
-        oduncMesajGoster('ISBN okundu: ' + isbn, 'success');
-        await kameraKapatOdunc();
-        await oduncKitapBul();
-      }
-    });
-  } catch (err) {
-    await kameraKapatOdunc();
-    oduncMesajGoster('Kamera açılamadı: ' + (err.message || err), 'error');
-  }
+  await kameraBaslat({
+    inputId: 'oduncIsbn',
+    successMessage: 'ISBN okundu: ',
+    onDetected: oduncKitapBul
+  });
 }
 
 function oduncVerForm() {
@@ -274,7 +184,7 @@ function oduncVerForm() {
 
       <div class="topActions">
         <button class="actionBtn blueBtn" onclick="kamerayiBaslatOdunc()">📷 Kamera ile ISBN Okut</button>
-        <button class="actionBtn grayBtn" onclick="kameraKapatOdunc()">Kamerayı Kapat</button>
+        <button class="actionBtn grayBtn" onclick="kameraKapat()">Kamerayı Kapat</button>
       </div>
 
       <div id="scannerWrap" class="scannerWrap">
@@ -304,7 +214,7 @@ function oduncVerForm() {
 }
 
 async function oduncKitapBul(suppressStatusMessage = false) {
-  oduncTemizMesaj();
+  temizMesaj();
   window.seciliOduncKitap = null;
 
   const alan = document.getElementById('oduncKitapAlani');
@@ -313,72 +223,76 @@ async function oduncKitapBul(suppressStatusMessage = false) {
   try {
     const isbn = temizIsbn(document.getElementById('oduncIsbn')?.value || '');
     if (!isbn) {
-      oduncMesajGoster('Önce ISBN girin veya okutun', 'warn');
+      mesajGoster('Önce ISBN girin veya okutun', 'warn');
       return;
     }
 
-    const kitaplar = await oduncTumKitaplariGetir();
+    const kitaplar = await tumKitaplariGetir();
     const kitap = kitaplar.find(k => temizIsbn(k.isbn || '') === isbn);
 
     if (!kitap) {
-      oduncMesajGoster('Bu ISBN ile kayıtlı kitap bulunamadı', 'warn');
+      mesajGoster('Bu ISBN ile kayıtlı kitap bulunamadı', 'warn');
       return;
     }
 
     window.seciliOduncKitap = kitap;
 
-    if (alan) alan.innerHTML = oduncKitapKartHtml(kitap);
-
-    if (suppressStatusMessage) {
-      return;
+    if (alan) {
+      alan.innerHTML = kitapKartHtml(kitap, `
+        <div class="kitapSatir"><strong>Ödünç Alan:</strong> ${guvenliYazi(kitap.oduncAlan || '-')}</div>
+        <div class="kitapSatir"><strong>Ödünç Tarihi:</strong> ${guvenliYazi(kitap.oduncTarihi || '-')}</div>
+        <div class="kitapSatir"><strong>İade Tarihi:</strong> ${guvenliYazi(kitap.iadeTarihi || '-')}</div>
+      `);
     }
+
+    if (suppressStatusMessage) return;
 
     if (String(kitap.durum || '').toUpperCase() === 'ÖDÜNÇTE') {
-      oduncMesajGoster('Bu kitap zaten ödünçte', 'error');
+      mesajGoster('Bu kitap zaten ödünçte', 'error');
     } else {
-      oduncMesajGoster('Kitap bulundu', 'success');
+      mesajGoster('Kitap bulundu', 'success');
     }
   } catch (err) {
-    oduncMesajGoster('Arama hatası: ' + err.message, 'error');
+    mesajGoster('Arama hatası: ' + err.message, 'error');
   }
 }
 
 async function oduncVer() {
-  oduncTemizMesaj();
+  temizMesaj();
 
   const kitap = window.seciliOduncKitap;
   if (!kitap) {
-    oduncMesajGoster('Önce kitabı bulun', 'warn');
+    mesajGoster('Önce kitabı bulun', 'warn');
     return;
   }
 
   if (String(kitap.durum || '').toUpperCase() === 'ÖDÜNÇTE') {
-    oduncMesajGoster('Bu kitap zaten ödünçte', 'error');
+    mesajGoster('Bu kitap zaten ödünçte', 'error');
     return;
   }
 
   const borrower = (document.getElementById('oduncAlan')?.value || '').trim();
   if (!borrower) {
-    oduncMesajGoster('Kişi adı zorunlu', 'warn');
+    mesajGoster('Kişi adı zorunlu', 'warn');
     return;
   }
 
   try {
-    const sonuc = await oduncApiPost({
+    const sonuc = await apiPost({
       action: 'loanBook',
       id: kitap.id,
       borrower: borrower
     });
 
     if (!sonuc.ok) {
-      oduncMesajGoster(sonuc.error || 'Ödünç verme hatası', 'error');
+      mesajGoster(sonuc.error || 'Ödünç verme hatası', 'error');
       return;
     }
 
     await oduncKitapBul(true);
-    oduncMesajGoster(sonuc.message || 'Kitap ödünç verildi', 'success');
+    mesajGoster(sonuc.message || 'Kitap ödünç verildi', 'success');
     document.getElementById('oduncAlan').value = '';
   } catch (err) {
-    oduncMesajGoster('Ödünç verme hatası: ' + err.message, 'error');
+    mesajGoster('Ödünç verme hatası: ' + err.message, 'error');
   }
 }
