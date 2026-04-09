@@ -113,9 +113,27 @@
       line-height:1.2;
     }
 
+    .hizliBtn{
+      width:100%;
+      margin-top:14px;
+      padding:24px;
+      border:none;
+      border-radius:22px;
+      background:#7c3aed;
+      color:white;
+      font-size:26px;
+      font-weight:bold;
+      cursor:pointer;
+      box-shadow:0 6px 14px rgba(124,58,237,0.25);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      gap:10px;
+    }
+
     .listBtn{
       width:100%;
-      margin-top:16px;
+      margin-top:14px;
       padding:24px;
       border:none;
       border-radius:22px;
@@ -158,8 +176,8 @@
         font-size:20px;
       }
 
-      .listBtn{
-        font-size:24px;
+      .listBtn, .hizliBtn{
+        font-size:22px;
       }
     }
   </style>
@@ -169,7 +187,7 @@
     <div class="headerRow">
       <div class="header">📚 Kütüphane Takip</div>
 
-      <a class="gearLink" href="./ayarlar.html?v=50">
+      <a class="gearLink" href="./ayarlar.html?v=51">
         <button class="gearBtn" type="button">⚙️</button>
       </a>
     </div>
@@ -198,19 +216,24 @@
       </button>
     </div>
 
-    <a class="linkLike" href="./liste.html?v=50">
+    <button class="hizliBtn" type="button" onclick="hizliEkleForm()">
+      ⚡ Hızlı Ekle
+    </button>
+
+    <a class="linkLike" href="./liste.html?v=51">
       <button class="listBtn" type="button">📚<br>Kitap Listesi</button>
     </a>
 
     <div id="formAlani"></div>
   </div>
 
-  <script src="./js/api.js?v=50"></script>
-  <script src="./js/camera.js?v=50"></script>
-  <script src="./js/utils.js?v=50"></script>
-  <script src="./js/ekle.js?v=50"></script>
-  <script src="./js/odunc.js?v=50"></script>
-  <script src="./js/iade_v2.js?v=50"></script>
-  <script src="./js/sil.js?v=50"></script>
+  <script src="./js/api.js?v=51"></script>
+  <script src="./js/camera.js?v=51"></script>
+  <script src="./js/utils.js?v=51"></script>
+  <script src="./js/ekle.js?v=51"></script>
+  <script src="./js/odunc.js?v=51"></script>
+  <script src="./js/iade_v2.js?v=51"></script>
+  <script src="./js/sil.js?v=51"></script>
+  <script src="./js/hizli_ekle.js?v=51"></script>
 </body>
 </html>
