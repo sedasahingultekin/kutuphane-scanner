@@ -1,96 +1,12 @@
-function getUserKey() {
-  let key = localStorage.getItem('kutuphane_user_key');
-  if (!key) {
-    key = 'demo-user';
-    localStorage.setItem('kutuphane_user_key', key);
-  }
-  return key;
-}
-
-function guvenliYazi(deger) {
-  return String(deger || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
-
-function temizIsbn(deger) {
-  if (window.KutuphaneCamera && window.KutuphaneCamera.temizKod) {
-    return window.KutuphaneCamera.temizKod(deger);
-  }
-  return String(deger || '').toUpperCase().replace(/[^0-9X]/g, '').trim();
-}
-
-function temizMesaj() {
-  const kutu = document.getElementById('mesajKutusu');
-  if (!kutu) return;
-  kutu.className = 'mesajKutusu';
-  kutu.innerHTML = '';
-}
-
-function mesajGoster(mesaj, tip = 'success') {
-  const kutu = document.getElementById('mesajKutusu');
-  if (!kutu) return;
-  kutu.className = 'mesajKutusu mesaj-' + tip;
-  kutu.innerHTML = guvenliYazi(mesaj);
-}
-
-async function apiPost(payload) {
-  const response = await fetch(API_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(payload)
-  });
-
-  return await response.json();
-}
-
-async function kameraKapat() {
-  try {
-    if (window.KutuphaneCamera) {
-      await window.KutuphaneCamera.stop();
-    }
-    const wrap = document.getElementById('scannerWrap');
-    const reader = document.getElementById('reader');
-    if (wrap) wrap.style.display = 'none';
-    if (reader) reader.innerHTML = '';
-  } catch (err) {}
-}
-
 async function kamerayiBaslatEkle() {
-  temizMesaj();
-
-  if (!window.KutuphaneCamera) {
-    mesajGoster('Kamera modülü yüklenemedi', 'error');
-    return;
-  }
-
-  try {
-    await window.KutuphaneCamera.start({
-      readerId: 'reader',
-      wrapId: 'scannerWrap',
-      config: {
-        fps: 8,
-        qrbox: { width: 320, height: 140 },
-        aspectRatio: 1.7778
-      },
-      onDetected: async (isbn) => {
-        const isbnInput = document.getElementById('isbn');
-        if (isbnInput) isbnInput.value = isbn;
-
-        mesajGoster('ISBN okundu: ' + isbn, 'success');
-        await kameraKapat();
-        await isbnBilgisiGetir();
-      }
-    });
-  } catch (err) {
-    await kameraKapat();
-    mesajGoster('Kamera açılamadı: ' + (err.message || err), 'error');
-  }
+  await kameraBaslat({
+    inputId: 'isbn',
+    successMessage: 'ISBN okundu: ',
+    fps: 8,
+    qrWidth: 320,
+    qrHeight: 140,
+    onDetected: isbnBilgisiGetir
+  });
 }
 
 function ekleForm() {
