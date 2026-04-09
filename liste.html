@@ -186,13 +186,8 @@
       width: 100%;
     }
 
-    .btnLoan {
-      background: #0b57d0;
-    }
-
-    .btnReturn {
-      background: #047857;
-    }
+    .btnLoan { background: #0b57d0; }
+    .btnReturn { background: #047857; }
 
     .btnDisabled {
       background: #9ca3af;
@@ -220,19 +215,19 @@
       word-break: break-word;
     }
 
-    .success {
+    .message.success {
       display: block;
       background: #d1fae5;
       color: #065f46;
     }
 
-    .error {
+    .message.error {
       display: block;
       background: #fee2e2;
       color: #991b1b;
     }
 
-    .warn {
+    .message.warn {
       display: block;
       background: #ffedd5;
       color: #9a3412;
@@ -279,221 +274,8 @@
     <div id="list" class="list"></div>
   </div>
 
-  <script>
-    const API_URL = 'https://little-heart-9411.sedasahingultekin.workers.dev';
-    let books = [];
-
-    function safeHtml(text) {
-      return String(text || '')
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&#039;');
-    }
-
-    function safeAttr(text) {
-      return String(text || '')
-        .replaceAll('&', '&amp;')
-        .replaceAll('"', '&quot;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;');
-    }
-
-    function showMessage(text, type = 'success') {
-      const el = document.getElementById('message');
-      el.className = 'message ' + type;
-      el.innerHTML = safeHtml(text);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-
-    function clearMessage() {
-      const el = document.getElementById('message');
-      el.className = 'message';
-      el.innerHTML = '';
-    }
-
-    function temizIsbn(value) {
-      return String(value || '').toUpperCase().replace(/[^0-9X]/g, '').trim();
-    }
-
-    function kapakUrlOlustur(isbn) {
-      const temiz = temizIsbn(isbn);
-      if (!temiz) return '';
-      return 'https://covers.openlibrary.org/b/isbn/' + encodeURIComponent(temiz) + '-M.jpg';
-    }
-
-    function kapakHtml(book) {
-      const url = kapakUrlOlustur(book.isbn || '');
-      if (!url) {
-        return `<div class="coverPlaceholder">📘</div>`;
-      }
-
-      return `
-        <img
-          class="coverImg"
-          src="${safeAttr(url)}"
-          alt="Kapak"
-          loading="lazy"
-          referrerpolicy="no-referrer"
-          onerror="this.outerHTML='<div class=&quot;coverPlaceholder&quot;>📘</div>'"
-        >
-      `;
-    }
-
-    async function apiPost(payload) {
-      const response = await fetch(API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payload)
-      });
-
-      return await response.json();
-    }
-
-    async function loadBooks() {
-      clearMessage();
-
-      try {
-        const result = await apiPost({
-          action: 'booksList'
-        });
-
-        if (!result.ok) {
-          showMessage(result.error || 'Liste alınamadı', 'error');
-          return;
-        }
-
-        books = result.data || [];
-        renderList();
-      } catch (err) {
-        showMessage('Liste hatası: ' + err.message, 'error');
-      }
-    }
-
-    function renderList() {
-      const q = document.getElementById('search').value.trim().toLowerCase();
-      const list = document.getElementById('list');
-
-      let filtered = books;
-
-      if (q) {
-        filtered = books.filter(book =>
-          (book.kitapKodu || '').toLowerCase().includes(q) ||
-          (book.kitapAdi || '').toLowerCase().includes(q) ||
-          (book.yazar || '').toLowerCase().includes(q) ||
-          (book.isbn || '').toLowerCase().includes(q)
-        );
-      }
-
-      if (!filtered.length) {
-        list.innerHTML = '<div class="empty">Kayıtlı kitap bulunamadı</div>';
-        return;
-      }
-
-      list.innerHTML = filtered.map(book => {
-        const durum = String(book.durum || 'RAFTA').toUpperCase();
-        let statusClass = 'rafta';
-        if (durum === 'ÖDÜNÇTE') statusClass = 'oduncte';
-        if (durum === 'KAYIP') statusClass = 'kayip';
-
-        const borrower = book.oduncAlan || '-';
-        const loanDate = book.oduncTarihi || '-';
-        const returnDate = book.iadeTarihi || '-';
-
-        const loanButton = durum === 'RAFTA'
-          ? `<button class="btn btnLoan" onclick="loanBook(${Number(book.id)})">Ödünç Ver</button>`
-          : `<button class="btn btnLoan btnDisabled" disabled>Ödünç Verilemez</button>`;
-
-        const returnButton = durum === 'ÖDÜNÇTE'
-          ? `<button class="btn btnReturn" onclick="returnBook(${Number(book.id)})">İade Al</button>`
-          : `<button class="btn btnReturn btnDisabled" disabled>İade Beklemiyor</button>`;
-
-        return `
-          <div class="card">
-            <div class="cardTop">
-              <div class="coverWrap">
-                ${kapakHtml(book)}
-              </div>
-
-              <div class="cardBody">
-                <div class="codeBadge">${safeHtml(book.kitapKodu || '-')}</div>
-                <div class="title">${safeHtml(book.kitapAdi || '-')}</div>
-                <div class="line"><strong>Yazar:</strong> ${safeHtml(book.yazar || '-')}</div>
-                <div class="line"><strong>ISBN:</strong> ${safeHtml(book.isbn || '-')}</div>
-                <div class="line"><strong>Yayınevi:</strong> ${safeHtml(book.yayinevi || '-')}</div>
-                <div class="line"><strong>Yıl:</strong> ${safeHtml(book.yayinYili || '-')}</div>
-                <div class="line"><strong>Ödünç Alan:</strong> ${safeHtml(borrower)}</div>
-                <div class="line"><strong>Ödünç Tarihi:</strong> ${safeHtml(loanDate)}</div>
-                <div class="line"><strong>İade Tarihi:</strong> ${safeHtml(returnDate)}</div>
-                <div class="status ${statusClass}">${safeHtml(durum)}</div>
-              </div>
-            </div>
-
-            <div class="actions">
-              ${loanButton}
-              ${returnButton}
-            </div>
-          </div>
-        `;
-      }).join('');
-    }
-
-    async function loanBook(id) {
-      clearMessage();
-
-      const borrower = prompt('Kitabı kime veriyorsun?');
-      if (borrower === null) return;
-
-      const cleanBorrower = borrower.trim();
-      if (!cleanBorrower) {
-        showMessage('Ödünç alan kişi adı zorunlu', 'warn');
-        return;
-      }
-
-      try {
-        const result = await apiPost({
-          action: 'loanBook',
-          id,
-          borrower: cleanBorrower
-        });
-
-        if (!result.ok) {
-          showMessage(result.error || 'Ödünç verme hatası', 'error');
-          return;
-        }
-
-        showMessage(result.message || 'Kitap ödünç verildi', 'success');
-        await loadBooks();
-      } catch (err) {
-        showMessage('Ödünç verme hatası: ' + err.message, 'error');
-      }
-    }
-
-    async function returnBook(id) {
-      clearMessage();
-
-      try {
-        const result = await apiPost({
-          action: 'returnBook',
-          id
-        });
-
-        if (!result.ok) {
-          showMessage(result.error || 'İade hatası', 'error');
-          return;
-        }
-
-        showMessage(result.message || 'Kitap iade alındı', 'success');
-        await loadBooks();
-      } catch (err) {
-        showMessage('İade hatası: ' + err.message, 'error');
-      }
-    }
-
-    loadBooks();
-  </script>
+  <script src="./js/api.js?v=50"></script>
+  <script src="./js/utils.js?v=50"></script>
+  <script src="./js/liste.js?v=50"></script>
 </body>
 </html>
