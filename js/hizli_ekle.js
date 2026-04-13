@@ -1,4 +1,4 @@
-// js/hizli_ekle.js — v51
+// js/hizli_ekle.js — v52
 // Bağımlılıklar: api.js (API_URL), utils.js (guvenliYazi, temizIsbn, getUserKey), camera.js (KutuphaneCamera)
 
 (function () {
@@ -111,8 +111,10 @@
       const bc    = BADGE[k.durum] || 'background:#e5e7eb;color:#374151';
       const etiket = k.durum === 'hazir' ? 'Hazır' : k.durum === 'eksik' ? 'Eksik' : 'Bulunamadı';
 
-      const kayitliPill = k.zatenKayitli
-        ? `<span style="background:#f3e8ff;color:#6b21a8;padding:4px 10px;border-radius:999px;font-size:13px;font-weight:bold;margin-left:6px">Zaten Kayıtlı</span>`
+      const kayitliPill = k.yeniKaydedildi
+        ? `<span style="background:#d1fae5;color:#065f46;padding:4px 10px;border-radius:999px;font-size:13px;font-weight:bold;margin-left:6px">Kaydedildi</span>`
+        : k.zatenKayitli
+        ? `<span style="background:#f3e8ff;color:#6b21a8;padding:4px 10px;border-radius:999px;font-size:13px;font-weight:bold;margin-left:6px">Sistemde Vardı</span>`
         : '';
 
       return `
@@ -157,7 +159,7 @@
     let kayit = {
       isbn: temiz,
       kitapAdi: '', yazar: '', yayinevi: '', yayinYili: '',
-      durum: 'bulunamadi', mesaj: '', zatenKayitli: false
+      durum: 'bulunamadi', mesaj: '', zatenKayitli: false, yeniKaydedildi: false
     };
 
     try {
@@ -226,7 +228,7 @@
 
   // ── Toplu Kaydet ──────────────────────────────────────────────────────────
   async function hizliTopluKaydet() {
-    const adaylar = kuyruk.filter(k => k.durum === 'hazir' && !k.zatenKayitli);
+    const adaylar = kuyruk.filter(k => k.durum === 'hazir' && !k.zatenKayitli && !k.yeniKaydedildi);
 
     if (!adaylar.length) {
       bannerGoster('bulunamadi', 'Kaydedilecek uygun kayıt yok');
@@ -267,9 +269,9 @@
           k.mesaj = sonuc.message || 'Sistemde zaten mevcut';
           duplicate++;
         } else {
-          // Gerçek başarı
-          k.zatenKayitli = true;
-          k.mesaj = 'Kaydedildi ✓';
+          // Gerçek başarı — bu oturumda yeni kaydedildi
+          k.yeniKaydedildi = true;
+          k.mesaj = '';
           basarili++;
         }
       } catch (err) {
