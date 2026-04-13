@@ -1,6 +1,6 @@
-// js/camera.js — v2
+// js/camera.js — v3
 // Html5Qrcode üzerinde EAN-13 odaklı, adaptif barkod okuyucu
-// Değişiklikler: tek tanım, fps 12/15, fonksiyon-tabanlı qrbox, adaptifMod
+// v3: varsayilanConfig %90 genişlik, %45 yükseklik (büyük barkod iyileştirmesi)
 
 window.KutuphaneCamera = (function () {
 
@@ -80,15 +80,15 @@ window.KutuphaneCamera = (function () {
   }
 
   // ── Normal config — büyük/orta barkodlar ──────────────────────────────────
-  // qrbox: container genişliğinin %82'si, yükseklik genişliğin %40'ı
-  // fps 12 → 8'den daha hızlı çerçeve analizi
+  // qrbox: container genişliğinin %90'ı, yükseklik genişliğin %45'i
+  // Büyük ISBN barkodları için daha geniş tarama alanı
   function varsayilanConfig() {
     return {
       ..._ortakAyarlar(),
       fps: 12,
       qrbox: (w, _h) => {
-        const bw = Math.min(Math.round(w * 0.82), 340);
-        return { width: bw, height: Math.round(bw * 0.40) };
+        const bw = Math.min(Math.round(w * 0.90), 380);
+        return { width: bw, height: Math.round(bw * 0.45) };
       }
     };
   }
