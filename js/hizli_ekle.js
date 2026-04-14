@@ -1,4 +1,4 @@
-// js/hizli_ekle.js — v58
+// js/hizli_ekle.js — v59
 // v58 değişiklikleri:
 //   • kamera wrap sabit height:200px, her zaman görünür (layout kayması yok)
 //   • kamera kapalıyken placeholder gösterilir, kapat→display:none yok
@@ -123,9 +123,13 @@
       `;
       mf.style.display = 'block';
 
-      // Enter tuşu ekle butonunu tetiklesin
-      const adiEl   = document.getElementById('hizliMiniAdi');
-      const yazarEl = document.getElementById('hizliMiniYazar');
+      // v59: mf.querySelector kullan — document.getElementById mobil/iOS'ta
+      // innerHTML ile eklenen elementleri bazen null döndürür
+      const adiEl   = mf.querySelector('#hizliMiniAdi');
+      const yazarEl = mf.querySelector('#hizliMiniYazar');
+      const ekleBtn = mf.querySelector('#hizliMiniEkleBtn');
+      const gecBtn  = mf.querySelector('#hizliMiniGecBtn');
+
       function _submit() {
         const adi   = (adiEl   ? adiEl.value.trim()   : '');
         const yazar = (yazarEl ? yazarEl.value.trim() : '');
@@ -139,10 +143,8 @@
       if (adiEl)   adiEl.addEventListener('keydown',   e => { if (e.key === 'Enter') { e.preventDefault(); yazarEl && yazarEl.focus(); } });
       if (yazarEl) yazarEl.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); _submit(); } });
 
-      const ekleBtn = document.getElementById('hizliMiniEkleBtn');
-      const gecBtn  = document.getElementById('hizliMiniGecBtn');
-      if (ekleBtn) ekleBtn.onclick = _submit;
-      if (gecBtn)  gecBtn.onclick  = _skip;
+      if (ekleBtn) ekleBtn.addEventListener('click', _submit);
+      if (gecBtn)  gecBtn.addEventListener('click',  _skip);
 
       // Odaklan
       setTimeout(() => { if (adiEl) adiEl.focus(); }, 80);
