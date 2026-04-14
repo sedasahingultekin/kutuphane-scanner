@@ -1,7 +1,7 @@
-// js/hizli_ekle.js — v56
-// v56: kamera alanı sabit height:120px, position:sticky top:0,
-//      aspectRatio:2.8 (daha kısa görüntü), restartNormal() her barkod sonrası
-//      (hassas mod geçici, her döngü normal moddan başlar)
+// js/hizli_ekle.js — v57
+// v57: v56 görsel değişiklikleri geri alındı (height:120px, aspectRatio:2.8, sticky kaldırıldı).
+//      camera.js v6 ile uyumlu: restartNormal harici çağrı yok, onRestartNormal callback ile
+//      watermark sıfırlama camera.js'e devredildi.
 // Bağımlılıklar: api.js (API_URL), utils.js (guvenliYazi, temizIsbn, getUserKey), camera.js (KutuphaneCamera)
 
 (function () {
@@ -30,8 +30,8 @@
   }
 
   function _durumHesapla(data) {
-    const adi  = (data.kitapAdi || '').trim();
-    const yazar = (data.yazar   || '').trim();
+    const adi   = (data.kitapAdi || '').trim();
+    const yazar = (data.yazar    || '').trim();
     if (adi && yazar) return 'hazir';
     if (adi || yazar) return 'eksik';
     return 'bulunamadi';
@@ -47,12 +47,11 @@
     );
   }
 
-  // ── Banner (okuma sonucu flaşı) ────────────────────────────────────────────
+  // ── Banner ─────────────────────────────────────────────────────────────────
   function bannerGoster(durum, mesaj) {
     const el = document.getElementById('hizliBanner');
     if (!el) return;
     clearTimeout(bannerTmr);
-
     const MAP = {
       hazir:      { bg:'#d1fae5', color:'#065f46', emoji:'✅' },
       eksik:      { bg:'#fef9c3', color:'#854d0e', emoji:'⚠️' },
@@ -61,7 +60,6 @@
       kayitli:    { bg:'#f3e8ff', color:'#6b21a8', emoji:'📌' },
     };
     const r = MAP[durum] || { bg:'#f3f4f6', color:'#374151', emoji:'ℹ️' };
-
     el.style.cssText = `
       display:block;background:${r.bg};color:${r.color};
       border-radius:14px;padding:14px 16px;font-size:18px;font-weight:bold;
@@ -72,37 +70,30 @@
     bannerTmr = setTimeout(() => { if (el) el.style.display = 'none'; }, 2200);
   }
 
-  // ── Kuyruk Render (kompakt) ────────────────────────────────────────────────
+  // ── Kuyruk Render ──────────────────────────────────────────────────────────
   function kuyrukRender() {
     const liste = document.getElementById('hizliKuyrukListe');
     const sayac = document.getElementById('hizliSayac');
     if (!liste) return;
-
     const kaydedilecek = kuyruk.filter(k => k.durum === 'hazir' && !k.zatenKayitli && !k.yeniKaydedildi).length;
     if (sayac) sayac.textContent = `${kuyruk.length} kayıt — ${kaydedilecek} kaydedilecek`;
-
     if (!kuyruk.length) {
       liste.innerHTML = '<div style="text-align:center;color:#aaa;padding:16px;font-size:13px">Henüz tarama yapılmadı</div>';
       return;
     }
-
     const BADGE = {
       hazir:      'background:#d1fae5;color:#065f46',
       eksik:      'background:#fef9c3;color:#854d0e',
       bulunamadi: 'background:#fee2e2;color:#991b1b',
     };
-
-    // En son okunan en üstte (kuyruk.unshift ile eklendiği için sıra zaten doğru)
     liste.innerHTML = kuyruk.map((k, i) => {
       const bc     = BADGE[k.durum] || 'background:#e5e7eb;color:#374151';
       const etiket = k.durum === 'hazir' ? 'Hazır' : k.durum === 'eksik' ? 'Eksik' : 'Bulunamadı';
-
       const kayitliPill = k.yeniKaydedildi
         ? `<span style="background:#d1fae5;color:#065f46;padding:2px 7px;border-radius:999px;font-size:11px;font-weight:bold;margin-left:5px">Kaydedildi</span>`
         : k.zatenKayitli
         ? `<span style="background:#f3e8ff;color:#6b21a8;padding:2px 7px;border-radius:999px;font-size:11px;font-weight:bold;margin-left:5px">Sistemde Vardı</span>`
         : '';
-
       return `
         <div style="
           background:#fff;border-radius:10px;padding:8px 10px;
@@ -127,59 +118,44 @@
     }).join('');
   }
 
-  // ── ISBN İşle ─────────────────────────────────────────────────────────────
+  // ── ISBN İşle ──────────────────────────────────────────────────────────────
   async function isbnIslendi(isbn) {
     const temiz = _temizIsbn(isbn);
     if (!temiz) return;
-
     if (kuyruk.find(k => _temizIsbn(k.isbn) === temiz)) {
       bannerGoster('tekrar', `Zaten kuyrukta: ${temiz}`);
       return;
     }
-
     let kayit = {
       isbn: temiz,
       kitapAdi: '', yazar: '', yayinevi: '', yayinYili: '',
       durum: 'bulunamadi', mesaj: '', zatenKayitli: false, yeniKaydedildi: false
     };
-
     try {
       const sonuc = await fetch(API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'isbnLookup', isbn: temiz })
       }).then(r => r.json());
-
       if (sonuc.ok && sonuc.data) {
         const d = sonuc.data;
-        kayit.kitapAdi     = d.kitapAdi   || '';
-        kayit.yazar        = d.yazar      || '';
-        kayit.yayinevi     = d.yayinevi   || '';
-        kayit.yayinYili    = d.yayinYili  || '';
+        kayit.kitapAdi     = d.kitapAdi  || '';
+        kayit.yazar        = d.yazar     || '';
+        kayit.yayinevi     = d.yayinevi  || '';
+        kayit.yayinYili    = d.yayinYili || '';
         kayit.zatenKayitli = !!(d.zatenKayitli);
-        kayit.mesaj        = d.mesaj      || '';
+        kayit.mesaj        = d.mesaj     || '';
       }
     } catch (err) {
       kayit.mesaj = 'Bağlantı hatası';
     }
-
     kayit.durum = _durumHesapla(kayit);
     kuyruk.unshift(kayit);
     kuyrukRender();
-
     if (kayit.zatenKayitli)              bannerGoster('kayitli',    `Sistemde kayıtlı: ${kayit.kitapAdi || temiz}`);
     else if (kayit.durum === 'hazir')    bannerGoster('hazir',      kayit.kitapAdi);
     else if (kayit.durum === 'eksik')    bannerGoster('eksik',      `Eksik bilgi: ${kayit.kitapAdi || temiz}`);
     else                                 bannerGoster('bulunamadi', `Bulunamadı: ${temiz}`);
-  }
-
-  // ── Watermark sıfırla (normal moda dönüldüğünde) ──────────────────────────
-  function _watermarkSifirla() {
-    const wm = document.getElementById('hizliWatermark');
-    if (!wm) return;
-    wm.textContent      = 'Küçük barkodlar için 3 sn bekleyin';
-    wm.style.color      = 'rgba(255,255,255,0.38)';
-    wm.style.fontWeight = 'normal';
   }
 
   // ── Kamera ────────────────────────────────────────────────────────────────
@@ -193,34 +169,31 @@
         readerId:   'hizliReader',
         wrapId:     'hizliScannerWrap',
         adaptifMod: true,
-        config: { aspectRatio: 2.8 }, // v56: daha kısa kamera görüntüsü
+        // config override YOK — varsayilanConfig (16:9, %90 qrbox) kullanılır
+
         onAdaptif: () => {
+          // Hassas moda geçildi
           const wm = document.getElementById('hizliWatermark');
           if (!wm) return;
           wm.textContent      = 'Hassas mod aktif';
           wm.style.color      = 'rgba(255,255,255,0.75)';
           wm.style.fontWeight = 'bold';
-          // NOT: watermark normal moda dönünce restartNormal() ile sıfırlanır
         },
+
+        onRestartNormal: () => {
+          // v6: camera.js barkod okuduktan sonra otomatik normal moda döndü
+          const wm = document.getElementById('hizliWatermark');
+          if (!wm) return;
+          wm.textContent      = 'Küçük barkodlar için 3 sn bekleyin';
+          wm.style.color      = 'rgba(255,255,255,0.38)';
+          wm.style.fontWeight = 'normal';
+        },
+
         onDetected: async (isbn) => {
+          // Temiz ve sade — duplicate koruması + adaptif reset camera.js'de
           await isbnIslendi(isbn);
-          // v56: hassas moddaysa normal moda geri dön — her döngü temiz başlar
-          if (window.KutuphaneCamera && window.KutuphaneCamera.isAdaptifAktif()) {
-            _watermarkSifirla();
-            await window.KutuphaneCamera.restartNormal();
-          }
         }
       });
-
-      // v56: kamera başlayınca wrap'ı ekranın üstüne sabitle
-      const wrap = document.getElementById('hizliScannerWrap');
-      if (wrap) {
-        wrap.style.position = 'sticky';
-        wrap.style.top      = '0';
-        wrap.style.zIndex   = '40';
-        wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
-
     } catch (err) {
       bannerGoster('bulunamadi', 'Kamera açılamadı: ' + (err.message || err));
     }
@@ -230,30 +203,20 @@
     if (window.KutuphaneCamera) await window.KutuphaneCamera.stop();
     const wrap   = document.getElementById('hizliScannerWrap');
     const reader = document.getElementById('hizliReader');
-    if (wrap) {
-      wrap.style.display  = 'none';
-      // v56: sticky'yi temizle — kamera kapatılınca normal akışa dön
-      wrap.style.position = 'relative';
-      wrap.style.top      = '';
-      wrap.style.zIndex   = '';
-    }
-    if (reader) reader.innerHTML = '';
+    if (wrap)   wrap.style.display = 'none';
+    if (reader) reader.innerHTML   = '';
   }
 
   // ── Toplu Kaydet ──────────────────────────────────────────────────────────
   async function hizliTopluKaydet() {
     const adaylar = kuyruk.filter(k => k.durum === 'hazir' && !k.zatenKayitli && !k.yeniKaydedildi);
-
     if (!adaylar.length) {
       bannerGoster('bulunamadi', 'Kaydedilecek uygun kayıt yok');
       return;
     }
-
     const btn = document.getElementById('hizliKaydetBtn');
     if (btn) { btn.disabled = true; btn.textContent = 'Kaydediliyor...'; }
-
     let basarili = 0, duplicate = 0, hatali = 0;
-
     for (const k of adaylar) {
       try {
         const sonuc = await fetch(API_URL, {
@@ -265,7 +228,6 @@
             yayinevi: k.yayinevi, yayinYili: k.yayinYili, notText: ''
           })
         }).then(r => r.json());
-
         if (!sonuc.ok) {
           k.mesaj = sonuc.error || 'Kayıt hatası'; hatali++;
         } else if (_zatenVarMi(sonuc)) {
@@ -278,10 +240,8 @@
         k.mesaj = 'Bağlantı hatası'; hatali++;
       }
     }
-
     kuyrukRender();
     if (btn) { btn.disabled = false; btn.textContent = '💾 Toplu Kaydet'; }
-
     const parcalar = [];
     if (basarili)  parcalar.push(`${basarili} eklendi`);
     if (duplicate) parcalar.push(`${duplicate} zaten vardı`);
@@ -319,13 +279,13 @@
           ⚡ Hızlı Ekle
         </div>
 
-        <!-- kamera alanı — sabit yükseklik, watermark overlay ile -->
+        <!-- kamera alanı -->
         <div id="hizliScannerWrap" style="
           position:relative;display:none;border-radius:14px;
           overflow:hidden;background:#111;margin-bottom:8px;
         ">
           <div id="hizliReader" style="
-            width:100%;height:120px;background:#000;
+            width:100%;min-height:160px;background:#000;
             touch-action:manipulation;
           "></div>
           <div id="hizliWatermark" style="
@@ -337,7 +297,7 @@
           ">Küçük barkodlar için 3 sn bekleyin</div>
         </div>
 
-        <!-- kamera butonları (kompakt) -->
+        <!-- kamera butonları -->
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
           <button onclick="hizliKameraBaslat()" style="
             padding:11px 8px;font-size:15px;font-weight:bold;border:none;
@@ -349,7 +309,7 @@
           ">⏹ Kapat</button>
         </div>
 
-        <!-- banner flaşı -->
+        <!-- banner -->
         <div id="hizliBanner" style="display:none"></div>
 
         <!-- sayac -->
@@ -358,14 +318,14 @@
           text-align:center;font-weight:600;letter-spacing:0.2px;
         ">0 kayıt — 0 kaydedilecek</div>
 
-        <!-- kompakt liste -->
+        <!-- liste -->
         <div id="hizliKuyrukListe" style="display:grid;gap:5px;margin-bottom:12px">
           <div style="text-align:center;color:#aaa;padding:16px;font-size:13px">
             Henüz tarama yapılmadı
           </div>
         </div>
 
-        <!-- aksiyon butonları -->
+        <!-- aksiyon -->
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
           <button id="hizliKaydetBtn" onclick="hizliTopluKaydet()" style="
             padding:13px 8px;font-size:16px;font-weight:bold;border:none;
