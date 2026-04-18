@@ -152,6 +152,47 @@ export default {
       }
 
       // ─────────────────────────────────────────────────────────────────────
+      if (action === "bookUpdate") {
+        const id        = Number(body.id        || 0);
+        const kitapAdi  = cleanText(body.kitapAdi  || "");
+        const yazar     = cleanText(body.yazar     || "");
+        const yayinevi  = cleanText(body.yayinevi  || "");
+        const yayinYili = cleanText(body.yayinYili || "");
+        const notText   = cleanText(body.notText   || "");
+
+        if (!id) {
+          return jsonResponse(
+            { ok: false, error: "id zorunlu" },
+            400,
+            corsHeaders
+          );
+        }
+
+        if (!kitapAdi || !yazar) {
+          return jsonResponse(
+            { ok: false, error: "Kitap adı ve yazar zorunlu" },
+            400,
+            corsHeaders
+          );
+        }
+
+        await env.DB
+          .prepare(`
+            UPDATE books
+            SET title = ?, author = ?, publisher = ?, publish_year = ?, note = ?
+            WHERE id = ?
+          `)
+          .bind(kitapAdi, yazar, yayinevi, yayinYili, notText, id)
+          .run();
+
+        return jsonResponse(
+          { ok: true, message: "Kitap güncellendi" },
+          200,
+          corsHeaders
+        );
+      }
+
+      // ─────────────────────────────────────────────────────────────────────
       if (action === "bookAdd") {
         const userKey   = cleanText(body.userKey   || "");
         const isbn      = cleanIsbn(body.isbn      || "");
@@ -160,6 +201,7 @@ export default {
         const yayinevi  = cleanText(body.yayinevi  || "");
         const yayinYili = cleanText(body.yayinYili || "");
         const notText   = cleanText(body.notText   || "");
+        const forceAdd  = !!body.forceAdd; // v63: true → ISBN tekrar kontrolünü atla
 
         if (!userKey) {
           return jsonResponse(
@@ -177,7 +219,8 @@ export default {
           );
         }
 
-        if (isbn) {
+        // v63: forceAdd=true ise ISBN kontrolü atlanır
+        if (isbn && !forceAdd) {
           const existing = await env.DB
             .prepare("SELECT * FROM books WHERE isbn = ? LIMIT 1")
             .bind(isbn)
@@ -185,7 +228,7 @@ export default {
 
           if (existing) {
             return jsonResponse(
-              { ok: true, message: "Bu ISBN ile kayıtlı kitap zaten var" },
+              { ok: true, duplicate: true, message: "Bu ISBN ile kayıtlı kitap zaten var" },
               200,
               corsHeaders
             );

@@ -1,5 +1,6 @@
-// js/ekle.js
-// KutuphaneCamera API'sine taşındı, duplicate temizlendi
+// js/ekle.js — v63
+// v63: basHarfBuyut global uygulandı (kitapAdi, yazar)
+//      kitapEkle(forceAdd): duplicate:true yanıtında "Yine de Ekle" butonu
 
 // ── Kamera ────────────────────────────────────────────────────────────────
 async function kamerayiBaslatEkle() {
@@ -273,7 +274,7 @@ function ekleForm() {
       <label class="formLabel">Not</label>
       <textarea class="formTextarea" id="notText" placeholder="İsteğe bağlı not"></textarea>
 
-      <button class="actionBtn greenBtn" onclick="kitapEkle()">Kaydet</button>
+      <button class="actionBtn greenBtn" id="kaydetBtn" onclick="kitapEkle(false)">Kaydet</button>
 
       <div id="mesajKutusu" class="mesajKutusu"></div>
     </div>
@@ -318,14 +319,17 @@ async function isbnBilgisiGetir() {
       return;
     }
 
+    // v63: title-case uygula
+    const _bh = typeof basHarfBuyut === 'function' ? basHarfBuyut : function(s){ return s; };
+
     document.getElementById('isbn').value      = data.isbn      || '';
-    document.getElementById('kitapAdi').value  = data.kitapAdi  || '';
-    document.getElementById('yazar').value     = data.yazar     || '';
+    document.getElementById('kitapAdi').value  = _bh(data.kitapAdi  || '');
+    document.getElementById('yazar').value     = _bh(data.yazar     || '');
     document.getElementById('yayinevi').value  = data.yayinevi  || '';
     document.getElementById('yayinYili').value = data.yayinYili || '';
 
     if (kartAlani) {
-      const kapakHtml = data.kapakUrl
+      const kapakHtmlStr = data.kapakUrl
         ? `
           <div class="kapakWrap">
             <img
@@ -342,7 +346,7 @@ async function isbnBilgisiGetir() {
       kartAlani.innerHTML = `
         <div class="kitapKart">
           <div class="kitapKartUst">
-            ${kapakHtml}
+            ${kapakHtmlStr}
             <div class="kitapBilgi">
               <div class="kitapBaslik">${guvenliYazi(data.kitapAdi || '-')}</div>
               <div class="kitapSatir"><strong>Yazar:</strong> ${guvenliYazi(data.yazar || '-')}</div>
@@ -366,19 +370,24 @@ async function isbnBilgisiGetir() {
 }
 
 // ── Kaydet ────────────────────────────────────────────────────────────────
-async function kitapEkle() {
+// v63: forceAdd=true ile duplicate bypass
+async function kitapEkle(forceAdd) {
   temizMesaj();
+
+  const _bh = typeof basHarfBuyut === 'function' ? basHarfBuyut : function(s){ return s; };
 
   const payload = {
     action:    'bookAdd',
     userKey:   getUserKey(),
     isbn:      temizIsbn(document.getElementById('isbn')?.value      || ''),
-    kitapAdi:  (document.getElementById('kitapAdi')?.value  || '').trim(),
-    yazar:     (document.getElementById('yazar')?.value     || '').trim(),
+    kitapAdi:  _bh((document.getElementById('kitapAdi')?.value  || '').trim()),
+    yazar:     _bh((document.getElementById('yazar')?.value     || '').trim()),
     yayinevi:  (document.getElementById('yayinevi')?.value  || '').trim(),
     yayinYili: (document.getElementById('yayinYili')?.value || '').trim(),
     notText:   (document.getElementById('notText')?.value   || '').trim()
   };
+
+  if (forceAdd) payload.forceAdd = true;
 
   if (!payload.kitapAdi || !payload.yazar) {
     mesajGoster('Kitap adı ve yazar zorunlu', 'warn');
@@ -390,6 +399,23 @@ async function kitapEkle() {
 
     if (!sonuc.ok) {
       mesajGoster(sonuc.error || 'Kayıt hatası', 'error');
+      return;
+    }
+
+    // v63: duplicate:true → "Yine de ekle" seçeneği sun
+    if (sonuc.duplicate) {
+      const kutu = document.getElementById('mesajKutusu');
+      if (kutu) {
+        kutu.className = 'mesajKutusu mesaj-warn';
+        kutu.style.display = 'block';
+        kutu.innerHTML =
+          guvenliYazi('Bu ISBN ile kayıtlı bir kitap zaten var.') +
+          ' <button onclick="kitapEkle(true)" style="' +
+            'display:inline-block;margin-top:10px;padding:10px 18px;' +
+            'font-size:16px;font-weight:bold;border:none;border-radius:10px;' +
+            'background:#0b57d0;color:#fff;cursor:pointer' +
+          '">Yine de Ekle</button>';
+      }
       return;
     }
 

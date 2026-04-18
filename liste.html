@@ -83,6 +83,7 @@
       display: flex;
       gap: 14px;
       align-items: flex-start;
+      /* v63: cursor pointer via inline style (set in liste.js) */
     }
 
     .coverWrap {
@@ -186,7 +187,7 @@
       width: 100%;
     }
 
-    .btnLoan { background: #0b57d0; }
+    .btnLoan   { background: #0b57d0; }
     .btnReturn { background: #047857; }
 
     .btnDisabled {
@@ -233,6 +234,16 @@
       color: #9a3412;
     }
 
+    /* v63: detay overlay — overlay kendisi JS'te oluşturulur,
+       sadece overlay içindeki paylaşılan sınıf stilleri burada */
+    #detayOverlay .status {
+      display: inline-block;
+      padding: 5px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: bold;
+    }
+
     @media (max-width: 640px) {
       .actions {
         grid-template-columns: 1fr;
@@ -256,7 +267,7 @@
   <div class="app">
     <div class="header">📚 Kitap Listesi</div>
 
-    <a class="homeBtn" href="./?v=50">
+    <a class="homeBtn" href="./?v=63">
       <button>🏠 Ana Ekrana Dön</button>
     </a>
 
@@ -274,8 +285,9 @@
     <div id="list" class="list"></div>
   </div>
 
-  <script src="./js/api.js?v=50"></script>
-  <script src="./js/utils.js?v=50"></script>
-  <script src="./js/liste.js?v=50"></script>
+  <script src="./js/api.js?v=63"></script>
+  <script src="./js/camera.js?v=63"></script>
+  <script src="./js/utils.js?v=63"></script>
+  <script src="./js/liste.js?v=63"></script>
 </body>
 </html>
