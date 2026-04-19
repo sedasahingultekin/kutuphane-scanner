@@ -1,4 +1,7 @@
-// js/hizli_ekle.js — v67
+// js/hizli_ekle.js — v68
+// v68 — forceEkle:true kayıtlarda kuyruk mesajı temizleniyor;
+//        kuyrukRender'da hataPill forceEkle durumunda gizleniyor.
+//        Root cause: isbnLookup'tan gelen d.mesaj forceEkle sonrası temizlenmiyordu.
 // v67 — forceEkle:true kayıtlar için API "zaten var" yanıtı başarı sayılıyor;
 //        kuyruktan doğru siliniyor. Root cause: _zatenVarMi forceEkle'yi ayırt etmiyordu.
 // v66 — Toplu Kaydet sonrası başarılı kayıtlar kuyruktan siliniyor;
@@ -342,7 +345,8 @@
       const badgeStyle = k.forceEkle ? 'background:#e0e7ff;color:#3730a3' : (BADGE[k.durum] || 'background:#e5e7eb;color:#374151');
 
       // Hata mesajı varsa küçük kırmızı satır göster
-      const hataPill = k.mesaj
+      // v68: forceEkle:true ise mesaj gösterilmez (kullanıcı bilinçli ekledi)
+      const hataPill = k.mesaj && !k.forceEkle
         ? `<div style="font-size:11px;color:#b91c1c;margin-top:2px">${_guvenli(k.mesaj)}</div>`
         : '';
 
@@ -443,6 +447,7 @@
 
       // Kullanıcı "Ekle" seçti — her basışta yeni kayıt
       if (dbde) kayit.forceEkle = true; // hizliTopluKaydet → forceAdd:true ile gönderir
+      kayit.mesaj = ''; // v68: isbnLookup'tan gelen "zaten var" mesajını temizle
       kayit.durum = _durumHesapla(kayit);
 
       // Bilgi eksikse (ne DB'den ne internetten gelebildi) kısmen kaydet
