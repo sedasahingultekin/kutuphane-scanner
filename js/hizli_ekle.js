@@ -1,4 +1,6 @@
-// js/hizli_ekle.js — v66
+// js/hizli_ekle.js — v67
+// v67 — forceEkle:true kayıtlar için API "zaten var" yanıtı başarı sayılıyor;
+//        kuyruktan doğru siliniyor. Root cause: _zatenVarMi forceEkle'yi ayırt etmiyordu.
 // v66 — Toplu Kaydet sonrası başarılı kayıtlar kuyruktan siliniyor;
 //        hatalı kayıtlar kuyrukta kalıyor, kullanıcı tekrar deneyebilir.
 //        yeniKaydedildi state'i kaldırıldı — artık gereksiz.
@@ -539,7 +541,6 @@
     if (btn) { btn.disabled = true; btn.textContent = 'Kaydediliyor...'; }
 
     let basarili = 0, duplicate = 0, hatali = 0;
-    const basariliIsbnler = new Set(); // başarılı olanların ISBN'leri
 
     for (const k of adaylar) {
       try {
@@ -563,13 +564,13 @@
 
         if (!sonuc.ok) {
           k.mesaj = sonuc.error || 'Kayıt hatası'; hatali++;
-        } else if (_zatenVarMi(sonuc)) {
-          // Beklenmedik duplicate (race condition)
+        } else if (!k.forceEkle && _zatenVarMi(sonuc)) {
+          // Beklenmedik duplicate — sadece forceEkle olmayan kayıtlar için hata
+          // (forceEkle:true ise kullanıcı bilinçli ekledi → başarı say)
           k.mesaj = sonuc.message || 'Sistemde zaten mevcut'; duplicate++;
         } else {
-          // v66: başarılı → kuyruktan çıkarılacak şekilde işaretle
+          // Başarılı (forceEkle olan kayıtlar için "zaten var" yanıtı da başarı)
           k._basarili = true; k.mesaj = ''; basarili++;
-          basariliIsbnler.add(k.isbn + '__' + (k.forceEkle ? '1' : '0'));
         }
       } catch (err) {
         k.mesaj = 'Bağlantı hatası'; hatali++;
