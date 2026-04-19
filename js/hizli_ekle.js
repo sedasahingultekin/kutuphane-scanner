@@ -1,15 +1,17 @@
-// js/hizli_ekle.js — v64
-// v64 — DÜZELTMELER:
-//   • _sistemdeVarMiSor(): "sistemde kayıtlı" için scan ANINDA YES/NO mini form
-//     → evet: forceEkle:true olarak kuyrukta   → hayır: kuyruktan dışarıda
-//     → böylece zatenKayitli item artık kuyrukta gizlice oluşturulmuyor
-//     → kamera restart'ta "zaten kuyrukta" hatası kalktı
-//   • hizliTopluKaydet: k.forceEkle=true → forceAdd:true ile worker'a gönderir
-//   • Kuyruk duplicate (tekrar) ile DB duplicate (sistemde var) kesin ayrıldı
-// v63: basHarfBuyut/hapticFeedback global, autocomplete click fix, hizliForceEkle
-// v62: API_URL guard, autocomplete dropdown, z-index 9999
-// v61: _basHarfBuyut, title-case, _yazarListesiYukle
-// v60: video style düzeltmesi  |  v59: mf.querySelector fix
+// js/hizli_ekle.js — v65
+// v65 — Duplicate ISBN akışı yeniden tasarlandı:
+//   • Otomatik bloklama YOK — her duplicate durumda kullanıcıya sor
+//   • _duplicateInfoGoster(): kamera altında inline bilgi paneli (popup değil)
+//     - Durum 1: Sadece DB'de var    → "kütüphanede zaten var"
+//     - Durum 2: Sadece kuyrukta var → "kuyrukta zaten var"
+//     - Durum 3: Her ikisinde de var → "hem kütüphanede hem kuyrukta var"
+//     - Butonlar: Ekle / Geç
+//   • Ekle → kuyrukta yeni kayıt (her basışta gerçekten yeni)
+//   • Geç  → hiçbir işlem yapma
+//   • Camera.js lastScannedCode mekanizması bozulmadı (kasıtlı auto-tekrar engeli)
+//   • Kamera kapanmıyor; _isProcessing lock kullanıcı seçim yapana kadar tutuluyor
+// v64: _sistemdeVarMiSor, isbnIslendi restructure, forceEkle
+// v63: basHarfBuyut/hapticFeedback global, autocomplete click fix
 // Bağımlılıklar: api.js (API_URL), utils.js (guvenliYazi, temizIsbn, getUserKey, basHarfBuyut, hapticFeedback), camera.js
 
 (function () {
@@ -63,7 +65,6 @@
     return 'bulunamadi';
   }
 
-  // v63: sonuc.duplicate bayrağı da kontrol edilir
   function _zatenVarMi(sonuc) {
     if (!sonuc.ok) return false;
     if (sonuc.duplicate) return true;
@@ -100,8 +101,6 @@
           a.toLocaleLowerCase('tr').localeCompare(b.toLocaleLowerCase('tr'), 'tr')
         );
         console.log('[hizliEkle] yazarListesi:', _yazarListesi.length, 'yazar yüklendi');
-      } else {
-        console.warn('[hizliEkle] authorsList yanıtı beklenmedik:', sonuc);
       }
     } catch (err) {
       console.error('[hizliEkle] _yazarListesiYukle hata:', err);
@@ -136,9 +135,11 @@
     bannerTmr = setTimeout(() => { if (el) el.style.display = 'none'; }, 2400);
   }
 
-  // ── v64: Sistemde kayıtlı → YES/NO mini form ─────────────────────────────
+  // ── v65: Duplicate bilgi paneli — kamera altında inline, popup değil ────────
+  // dbde  : isbnLookup → zatenKayitli:true
+  // kuyrukta: aynı ISBN bu oturumda kuyrukta
   // Döner: Promise<boolean> — true=ekle, false=geç
-  function _sistemdeVarMiSor(isbn, kitapAdi, yazar) {
+  function _duplicateInfoGoster(isbn, kitapAdi, yazar, kuyrukta, dbde) {
     return new Promise(resolve => {
       const banner = document.getElementById('hizliBanner');
       const mf     = document.getElementById('hizliMiniForm');
@@ -146,47 +147,60 @@
 
       if (banner) { clearTimeout(bannerTmr); banner.style.display = 'none'; }
 
+      // Duruma göre renk + mesaj
+      let ikon, mesaj, bg, border, renk;
+      if (dbde && kuyrukta) {
+        ikon = '⚠️'; mesaj = 'Bu ISBN hem kütüphanede hem kuyrukta var';
+        bg = '#fff7ed'; border = '#fb923c'; renk = '#9a3412';
+      } else if (dbde) {
+        ikon = '📌'; mesaj = 'Bu ISBN kütüphanede zaten var';
+        bg = '#f3e8ff'; border = '#a855f7'; renk = '#6b21a8';
+      } else {
+        ikon = '🔁'; mesaj = 'Bu ISBN zaten kuyrukta var';
+        bg = '#e0e7ff'; border = '#818cf8'; renk = '#3730a3';
+      }
+
+      const kitapSatiri = (kitapAdi || yazar)
+        ? `<div style="font-size:12px;color:${renk};opacity:0.85;margin-bottom:8px;word-break:break-word;font-weight:500">
+            ${_guvenli(kitapAdi || isbn)}${yazar ? ' — ' + _guvenli(yazar) : ''}
+           </div>`
+        : '<div style="margin-bottom:8px"></div>';
+
       mf.innerHTML = `
         <div style="
-          background:#f3e8ff;border:1px solid #a855f7;border-radius:12px;
+          background:${bg};border:1px solid ${border};border-radius:12px;
           padding:10px 12px;
         ">
-          <div style="font-size:13px;color:#6b21a8;font-weight:700;margin-bottom:6px">
-            📌 Sistemde zaten kayıtlı
+          <div style="font-size:13px;color:${renk};font-weight:700;margin-bottom:4px">
+            ${ikon} ${_guvenli(mesaj)}
           </div>
-          <div style="font-size:13px;color:#4c1d95;font-weight:500;margin-bottom:2px;word-break:break-word">
-            ${_guvenli(kitapAdi || isbn)}
-          </div>
-          ${yazar ? `<div style="font-size:11px;color:#7e22ce;margin-bottom:8px">${_guvenli(yazar)}</div>` : '<div style="margin-bottom:8px"></div>'}
-          <div style="font-size:12px;color:#6b21a8;margin-bottom:10px;line-height:1.4">
-            Yine de <strong>ikinci kopya</strong> olarak eklemek ister misiniz?
-          </div>
+          ${kitapSatiri}
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
-            <button id="hizliVarEkleBtn" style="
+            <button id="hizliDupEkleBtn" style="
               padding:9px 6px;font-size:13px;font-weight:bold;border:none;
               border-radius:9px;background:#047857;color:#fff;cursor:pointer;
-            ">✓ Evet, Ekle</button>
-            <button id="hizliVarGecBtn" style="
+            ">✓ Ekle</button>
+            <button id="hizliDupGecBtn" style="
               padding:9px 6px;font-size:13px;font-weight:bold;border:none;
               border-radius:9px;background:#6b7280;color:#fff;cursor:pointer;
-            ">Hayır, Geç</button>
+            ">Geç</button>
           </div>
         </div>
       `;
       mf.style.display = 'block';
 
-      const ekleBtn = mf.querySelector('#hizliVarEkleBtn');
-      const gecBtn  = mf.querySelector('#hizliVarGecBtn');
+      const ekleBtn = mf.querySelector('#hizliDupEkleBtn');
+      const gecBtn  = mf.querySelector('#hizliDupGecBtn');
 
       function _evet()  { mf.style.display = 'none'; resolve(true);  }
       function _hayir() { mf.style.display = 'none'; resolve(false); }
 
       if (ekleBtn) ekleBtn.addEventListener('click', _evet);
-      if (gecBtn)  gecBtn.addEventListener('click', _hayir);
+      if (gecBtn)  gecBtn.addEventListener('click',  _hayir);
     });
   }
 
-  // ── Manuel Giriş Mini Form ────────────────────────────────────────────────
+  // ── Manuel Giriş Mini Form (ISBN bulunamadı) ──────────────────────────────
   // Döner: Promise<{kitapAdi, yazar}|null>
   function _manuelGirisGoster(isbn) {
     return new Promise(resolve => {
@@ -260,7 +274,6 @@
         resolve(null);
       }
 
-      // v63: autocomplete click + 300ms blur delay
       if (yazarEl && oneriDiv) {
         function _oneriGoster() {
           const q = yazarEl.value.trim().toLocaleLowerCase('tr');
@@ -304,7 +317,9 @@
     const sayac = document.getElementById('hizliSayac');
     if (!liste) return;
 
-    const kaydedilecek = kuyruk.filter(k => (k.durum === 'hazir' || k.forceEkle) && !k.zatenKayitli && !k.yeniKaydedildi).length;
+    const kaydedilecek = kuyruk.filter(k =>
+      (k.durum === 'hazir' || k.forceEkle) && !k.yeniKaydedildi
+    ).length;
     if (sayac) sayac.textContent = `${kuyruk.length} kayıt — ${kaydedilecek} kaydedilecek`;
 
     if (!kuyruk.length) {
@@ -319,27 +334,12 @@
     };
 
     liste.innerHTML = kuyruk.map((k, i) => {
-      const bc     = BADGE[k.durum] || 'background:#e5e7eb;color:#374151';
-      const etiket = k.forceEkle ? 'Kopya' : k.durum === 'hazir' ? 'Hazır' : k.durum === 'eksik' ? 'Eksik' : 'Bulunamadı';
-      const badgeStyle = k.forceEkle
-        ? 'background:#e0e7ff;color:#3730a3'
-        : bc;
+      // v65: forceEkle = kullanıcı onayıyla eklenen ikinci kopya
+      const etiket     = k.forceEkle ? 'Kopya' : k.durum === 'hazir' ? 'Hazır' : k.durum === 'eksik' ? 'Eksik' : 'Bulunamadı';
+      const badgeStyle = k.forceEkle ? 'background:#e0e7ff;color:#3730a3' : (BADGE[k.durum] || 'background:#e5e7eb;color:#374151');
 
-      const kayitliPill = k.yeniKaydedildi
+      const kayitPill = k.yeniKaydedildi
         ? `<span style="background:#d1fae5;color:#065f46;padding:2px 7px;border-radius:999px;font-size:11px;font-weight:bold;margin-left:5px">Kaydedildi</span>`
-        : k.zatenKayitli
-        ? `<span style="background:#f3e8ff;color:#6b21a8;padding:2px 7px;border-radius:999px;font-size:11px;font-weight:bold;margin-left:5px">Sistemde Vardı</span>`
-        : '';
-
-      // Sadece hizliTopluKaydet sırasında hata ile zatenKayitli olan için fallback
-      const forceBtn = (k.zatenKayitli && !k.yeniKaydedildi && !k.forceAdding)
-        ? `<button onclick="hizliForceEkle(${i})" style="
-            border:none;background:#0b57d0;color:#fff;
-            padding:3px 8px;border-radius:6px;font-size:11px;
-            font-weight:bold;cursor:pointer;flex-shrink:0;white-space:nowrap;
-          ">Yine de Ekle</button>`
-        : k.forceAdding
-        ? `<span style="font-size:11px;color:#9ca3af;flex-shrink:0">Ekleniyor...</span>`
         : '';
 
       return `
@@ -353,11 +353,10 @@
           </span>
           <div style="flex:1;min-width:0">
             <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.3">
-              ${_guvenli(k.kitapAdi || '—')}${kayitliPill}
+              ${_guvenli(k.kitapAdi || '—')}${kayitPill}
             </div>
             <div style="font-size:11px;color:#9ca3af;margin-top:1px;font-family:monospace,monospace">${_guvenli(k.isbn)}</div>
           </div>
-          ${forceBtn}
           <button onclick="hizliEkleSil(${i})" style="
             border:none;background:transparent;color:#9ca3af;
             padding:2px 5px;font-size:14px;cursor:pointer;flex-shrink:0;line-height:1;
@@ -367,20 +366,17 @@
     }).join('');
   }
 
-  // ── ISBN İşle — v64 ────────────────────────────────────────────────────────
+  // ── ISBN İşle — v65 ────────────────────────────────────────────────────────
   async function isbnIslendi(isbn) {
     const temiz = _temizIsbn(isbn);
     if (!temiz) return;
 
     _haptic('scan');
 
-    // ── 1. Kuyruk duplicate kontrolü ──────────────────────────────────────
-    // Bu oturumda zaten taranmış: ekleme, sadece bildir
+    // ── 1. Mevcut durum tespiti ────────────────────────────────────────────
+    // Not: otomatik bloklama YOK — her durumda kullanıcıya sorulur
     const kuyrukItem = kuyruk.find(k => _temizIsbn(k.isbn) === temiz);
-    if (kuyrukItem) {
-      bannerGoster('tekrar', `Zaten kuyrukta: ${kuyrukItem.kitapAdi || temiz}`);
-      return;
-    }
+    const kuyrukta   = !!kuyrukItem;
 
     let kayit = {
       isbn:           temiz,
@@ -390,11 +386,12 @@
       yayinYili:      '',
       durum:          'bulunamadi',
       mesaj:          '',
-      zatenKayitli:   false,   // sistemde var mı (artık kuyrukta tutulmaz)
       yeniKaydedildi: false,
       forceAdding:    false,
-      forceEkle:      false    // v64: kullanıcı "evet" dedi → forceAdd:true ile kaydet
+      forceEkle:      false
     };
+
+    let dbde = false;
 
     // ── 2. API lookup ─────────────────────────────────────────────────────
     try {
@@ -411,34 +408,52 @@
         kayit.yayinevi  = d.yayinevi   || '';
         kayit.yayinYili = d.yayinYili  || '';
         kayit.mesaj     = d.mesaj      || '';
+        dbde            = !!(d.zatenKayitli);
 
-        // ── 3. Sistemde kayıtlı → scan ANINDA sor (v64) ──────────────────
-        // kuyruk duplicate ile karıştırılmıyor; ayrı YES/NO mini form
-        if (d.zatenKayitli) {
-          const ekle = await _sistemdeVarMiSor(temiz, kayit.kitapAdi, kayit.yazar);
-          if (!ekle) {
-            // Kullanıcı "Hayır, Geç" seçti
-            bannerGoster('atlandi', `Atlandı: ${kayit.kitapAdi || temiz}`);
-            return; // kuyruktan dışarıda, hiç eklenmedi
-          }
-          // Kullanıcı "Evet, Ekle" seçti → ikinci kopya olarak ekle
-          kayit.forceEkle  = true;   // hizliTopluKaydet bunu forceAdd:true ile gönderir
-          kayit.durum      = _durumHesapla(kayit);
-          kuyruk.unshift(kayit);
-          kuyrukRender();
-          bannerGoster('hazir', `Kuyruğa eklendi: ${kayit.kitapAdi || temiz}`);
-          _haptic('success');
-          return;
-        }
+        // Kitap bilgisi kuyruk öğesinden tamamlanabilir
+        // (kuyrukta var ama DB'de yoksa API internet'ten baktı; bulamazsa kuyruktan al)
+        if (!kayit.kitapAdi && kuyrukItem) kayit.kitapAdi = kuyrukItem.kitapAdi;
+        if (!kayit.yazar    && kuyrukItem) kayit.yazar    = kuyrukItem.yazar;
+        if (!kayit.yayinevi && kuyrukItem) kayit.yayinevi = kuyrukItem.yayinevi;
+        if (!kayit.yayinYili && kuyrukItem) kayit.yayinYili = kuyrukItem.yayinYili;
       }
     } catch (err) {
       kayit.mesaj = 'Bağlantı hatası';
+      // Bağlantı hatası varsa kuyruk bilgisini kopyala
+      if (kuyrukItem) {
+        kayit.kitapAdi  = kuyrukItem.kitapAdi;
+        kayit.yazar     = kuyrukItem.yazar;
+        kayit.yayinevi  = kuyrukItem.yayinevi;
+        kayit.yayinYili = kuyrukItem.yayinYili;
+      }
     }
 
-    // ── 4. Normal akış ────────────────────────────────────────────────────
+    // ── 3. Duplicate durumu: kullanıcıya sor ─────────────────────────────
+    // DB'de veya kuyrukta varsa → _duplicateInfoGoster → Ekle/Geç
+    if (kuyrukta || dbde) {
+      const ekle = await _duplicateInfoGoster(temiz, kayit.kitapAdi, kayit.yazar, kuyrukta, dbde);
+
+      if (!ekle) {
+        bannerGoster('atlandi', `Atlandı: ${kayit.kitapAdi || temiz}`);
+        return; // Kullanıcı "Geç" seçti — kuyrukta hiçbir şey değişmez
+      }
+
+      // Kullanıcı "Ekle" seçti — her basışta yeni kayıt
+      if (dbde) kayit.forceEkle = true; // hizliTopluKaydet → forceAdd:true ile gönderir
+      kayit.durum = _durumHesapla(kayit);
+
+      // Bilgi eksikse (ne DB'den ne internetten gelebildi) kısmen kaydet
+      kuyruk.unshift(kayit);
+      kuyrukRender();
+      bannerGoster('hazir', `Kuyruğa eklendi: ${kayit.kitapAdi || temiz}`);
+      _haptic('success');
+      return;
+    }
+
+    // ── 4. Normal akış: ne DB'de ne kuyrukta ─────────────────────────────
     kayit.durum = _durumHesapla(kayit);
 
-    // Bilgi bulunamadıysa manuel giriş mini formu
+    // Bilgi bulunamadıysa manuel giriş formu
     if (kayit.durum === 'bulunamadi') {
       const manuel = await _manuelGirisGoster(temiz);
       if (manuel) {
@@ -512,14 +527,14 @@
 
   // ── Toplu Kaydet ──────────────────────────────────────────────────────────
   async function hizliTopluKaydet() {
-    // forceEkle:true olanlar da dahil (sistemde var ama kullanıcı eklemeyi onayladı)
     const adaylar = kuyruk.filter(k =>
-      (k.durum === 'hazir' || k.forceEkle) && !k.zatenKayitli && !k.yeniKaydedildi
+      (k.durum === 'hazir' || k.forceEkle) && !k.yeniKaydedildi
     );
     if (!adaylar.length) {
       bannerGoster('bulunamadi', 'Kaydedilecek uygun kayıt yok');
       return;
     }
+
     const btn = document.getElementById('hizliKaydetBtn');
     if (btn) { btn.disabled = true; btn.textContent = 'Kaydediliyor...'; }
 
@@ -537,7 +552,7 @@
           yayinYili: k.yayinYili,
           notText:   ''
         };
-        // v64: kullanıcı onay vermişse forceAdd:true gönder
+        // forceEkle:true → kullanıcı onayıyla eklenen kopya → worker ISBN kontrolünü atla
         if (k.forceEkle) payload.forceAdd = true;
 
         const sonuc = await fetch(API_URL, {
@@ -549,8 +564,7 @@
         if (!sonuc.ok) {
           k.mesaj = sonuc.error || 'Kayıt hatası'; hatali++;
         } else if (_zatenVarMi(sonuc)) {
-          // forceAdd olmayan adayda duplicate yanıtı geldiyse (edge case)
-          k.zatenKayitli = true;
+          // Beklenmedik duplicate (forceAdd olmayan bir item için race condition)
           k.mesaj = sonuc.message || 'Sistemde zaten mevcut'; duplicate++;
         } else {
           k.yeniKaydedildi = true; k.mesaj = ''; basarili++;
@@ -565,15 +579,15 @@
 
     const parcalar = [];
     if (basarili)  parcalar.push(`${basarili} eklendi`);
-    if (duplicate) parcalar.push(`${duplicate} zaten vardı`);
+    if (duplicate) parcalar.push(`${duplicate} tekrar`);
     if (hatali)    parcalar.push(`${hatali} hata`);
-    const tip = hatali > 0 ? 'eksik' : (duplicate > 0 && basarili === 0) ? 'kayitli' : 'hazir';
+    const tip = hatali > 0 ? 'eksik' : basarili > 0 ? 'hazir' : 'kayitli';
     bannerGoster(tip, parcalar.join(', '));
     if (basarili > 0)  _haptic('success');
     else if (hatali > 0) _haptic('error');
   }
 
-  // ── Global fonksiyonlar ────────────────────────────────────────────────────
+  // ── Global ────────────────────────────────────────────────────────────────
   window.hizliEkleSil = function (index) {
     kuyruk.splice(index, 1);
     kuyrukRender();
@@ -584,43 +598,6 @@
     if (!confirm('Tüm kuyruk temizlensin mi?')) return;
     kuyruk = [];
     kuyrukRender();
-  };
-
-  // v63 fallback: hizliTopluKaydet sırasında hata ile zatenKayitli olan itemlar için
-  window.hizliForceEkle = async function (index) {
-    const k = kuyruk[index];
-    if (!k) return;
-    k.forceAdding = true;
-    kuyrukRender();
-    try {
-      const sonuc = await fetch(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'bookAdd', userKey: _userKey(), forceAdd: true,
-          isbn: k.isbn, kitapAdi: k.kitapAdi, yazar: k.yazar,
-          yayinevi: k.yayinevi, yayinYili: k.yayinYili, notText: ''
-        })
-      }).then(r => r.json());
-      if (sonuc.ok && !_zatenVarMi(sonuc)) {
-        k.yeniKaydedildi = true;
-        k.zatenKayitli   = false;
-        k.mesaj          = '';
-        _haptic('success');
-        bannerGoster('hazir', `Eklendi: ${k.kitapAdi || k.isbn}`);
-      } else {
-        k.mesaj = sonuc.error || sonuc.message || 'Kayıt hatası';
-        _haptic('error');
-        bannerGoster('bulunamadi', k.mesaj);
-      }
-    } catch (err) {
-      k.mesaj = 'Bağlantı hatası';
-      _haptic('error');
-      bannerGoster('bulunamadi', 'Bağlantı hatası');
-    } finally {
-      k.forceAdding = false;
-      kuyrukRender();
-    }
   };
 
   // v60: Html5Qrcode video elementini konteynere doğal oturtur
@@ -647,12 +624,11 @@
         background:#fff;border-radius:20px;padding:14px 14px 16px;
         box-shadow:0 6px 16px rgba(0,0,0,0.10);margin-top:14px;
       ">
-
         <div style="font-size:17px;font-weight:bold;text-align:center;margin-bottom:10px;color:#333">
           ⚡ Hızlı Ekle
         </div>
 
-        <!-- kamera alanı: sabit 200px -->
+        <!-- kamera alanı -->
         <div id="hizliScannerWrap" style="
           position:relative;height:200px;border-radius:14px;
           overflow:hidden;background:#111;margin-bottom:8px;
@@ -691,7 +667,7 @@
           ">⏹ Kapat</button>
         </div>
 
-        <!-- bilgi alanı: banner veya mini form -->
+        <!-- bilgi alanı: banner + mini form (Ekle/Geç paneli burada çıkar) -->
         <div id="hizliBilgiAlani" style="margin-bottom:6px;min-height:42px;overflow:visible">
           <div id="hizliBanner" style="display:none"></div>
           <div id="hizliMiniForm" style="display:none"></div>
@@ -703,7 +679,7 @@
           text-align:center;font-weight:600;letter-spacing:0.2px;
         ">0 kayıt — 0 kaydedilecek</div>
 
-        <!-- kuyruk listesi -->
+        <!-- kuyruk -->
         <div id="hizliKuyrukListe" style="
           max-height:220px;overflow-y:auto;
           display:grid;gap:5px;margin-bottom:12px;
@@ -724,7 +700,6 @@
             border-radius:12px;background:#b91c1c;color:#fff;cursor:pointer
           ">🗑️ Temizle</button>
         </div>
-
       </div>
     `;
 
