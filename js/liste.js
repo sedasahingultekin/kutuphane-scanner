@@ -1,4 +1,9 @@
-// js/liste.js — v63
+// js/liste.js — v64
+// v64:
+//   • _isbnSayimHesapla(): books üzerinden ISBN bazlı kopya sayısı
+//   • renderList: adet > 1 ise kart üzerinde "📚 X adet" badge
+//   • detayAc: üst kısımda "Toplam X adet" + sticky "✕ Kapat" header
+//   • Kapat butonu: sticky, büyük tıklama alanı, her durumda görünür
 // v63:
 //   • kapakHtml: localStorage kapak önce kontrol edilir ('kapak_' + book.id)
 //   • Kartlar tıklanabilir — cardTop alanına onclick="detayAc(id)" eklendi
@@ -58,6 +63,17 @@ function kapakHtml(book) {
   `;
 }
 
+// v64: ISBN bazlı kopya sayısı — tüm books üzerinden
+function _isbnSayimHesapla(kitaplar) {
+  const sayim = {};
+  for (const b of kitaplar) {
+    const isbn = (b.isbn || '').trim();
+    if (!isbn) continue;
+    sayim[isbn] = (sayim[isbn] || 0) + 1;
+  }
+  return sayim;
+}
+
 async function loadBooks() {
   listeMesajTemizle();
 
@@ -90,6 +106,9 @@ function renderList() {
     return;
   }
 
+  // v64: tüm kitap listesinden ISBN sayımı (filtrelenmiş değil — gerçek stok)
+  const isbnSayim = _isbnSayimHesapla(books);
+
   list.innerHTML = filtered.map(book => {
     const durum = String(book.durum || 'RAFTA').toUpperCase();
 
@@ -109,6 +128,18 @@ function renderList() {
       ? `<button class="btn btnReturn" onclick="event.stopPropagation();returnBook(${Number(book.id)})">İade Al</button>`
       : `<button class="btn btnReturn btnDisabled" disabled>İade Beklemiyor</button>`;
 
+    // v64: adet badge — aynı ISBN'den 2+ kopya varsa göster
+    const isbn      = (book.isbn || '').trim();
+    const adetSayisi = isbn ? (isbnSayim[isbn] || 1) : 1;
+    const adetBadge  = adetSayisi > 1
+      ? `<span style="
+          display:inline-block;margin-bottom:5px;
+          background:#dbeafe;color:#1d4ed8;
+          padding:2px 8px;border-radius:999px;
+          font-size:11px;font-weight:700;
+        ">📚 ${adetSayisi} adet</span>`
+      : '';
+
     return `
       <div class="card">
         <!-- v63: cardTop tıklanabilir → detay overlay -->
@@ -119,6 +150,7 @@ function renderList() {
 
           <div class="cardBody">
             <div class="codeBadge">${guvenliYazi(book.kitapKodu || '-')}</div>
+            ${adetBadge}
             <div class="title">${guvenliYazi(book.kitapAdi || '-')}</div>
             <div class="line"><strong>Yazar:</strong> ${guvenliYazi(book.yazar || '-')}</div>
             <div class="line"><strong>ISBN:</strong> ${guvenliYazi(book.isbn || '-')}</div>
@@ -159,7 +191,18 @@ function detayAc(id) {
   const loanBtn   = durum === 'RAFTA'    ? `<button onclick="loanBook(${Number(book.id)});detayKapat()" style="${_detayBtnStyle('#0b57d0')}">📤 Ödünç Ver</button>` : '';
   const returnBtn = durum === 'ÖDÜNÇTE'  ? `<button onclick="returnBook(${Number(book.id)});detayKapat()" style="${_detayBtnStyle('#047857')}">📥 İade Al</button>` : '';
 
-  const _bh = typeof basHarfBuyut === 'function' ? basHarfBuyut : function(s){ return s; };
+  // v64: adet sayısı
+  const isbn       = (book.isbn || '').trim();
+  const isbnSayim  = _isbnSayimHesapla(books);
+  const adetSayisi = isbn ? (isbnSayim[isbn] || 1) : 1;
+  const adetSatiri = adetSayisi > 1
+    ? `<div style="
+        display:inline-flex;align-items:center;gap:5px;
+        background:#dbeafe;color:#1d4ed8;
+        padding:4px 10px;border-radius:999px;
+        font-size:12px;font-weight:700;margin-bottom:8px;
+      ">📚 Toplam ${adetSayisi} adet</div>`
+    : '';
 
   // Remove any existing overlay
   const old = document.getElementById('detayOverlay');
@@ -179,13 +222,31 @@ function detayAc(id) {
       overflow-y:auto;padding:0 0 env(safe-area-inset-bottom,0) 0;
       box-shadow:0 -8px 32px rgba(0,0,0,0.18);
     ">
-      <!-- drag handle -->
-      <div style="display:flex;justify-content:center;padding:10px 0 4px">
-        <div style="width:40px;height:4px;border-radius:2px;background:#d1d5db"></div>
+
+      <!-- v64: Sticky kapat header — her zaman görünür -->
+      <div style="
+        position:sticky;top:0;z-index:10;background:#fff;
+        border-radius:22px 22px 0 0;
+        display:flex;align-items:center;justify-content:space-between;
+        padding:12px 16px 10px;
+        border-bottom:1px solid #f3f4f6;
+      ">
+        <!-- drag handle -->
+        <div style="display:flex;align-items:center;padding-left:4px">
+          <div style="width:40px;height:4px;border-radius:2px;background:#d1d5db"></div>
+        </div>
+        <!-- kapat butonu — büyük, net, mobil uyumlu -->
+        <button onclick="detayKapat()" style="
+          display:flex;align-items:center;gap:6px;
+          padding:9px 18px;font-size:14px;font-weight:700;
+          border:none;border-radius:20px;
+          background:#f3f4f6;color:#374151;cursor:pointer;
+          min-height:40px;
+        ">✕ Kapat</button>
       </div>
 
       <!-- kapak + üst bilgi -->
-      <div style="display:flex;gap:16px;align-items:flex-start;padding:12px 18px 16px">
+      <div style="display:flex;gap:16px;align-items:flex-start;padding:16px 18px 16px">
         <!-- kapak alanı: tıklayınca fotoğraf seç -->
         <div style="flex-shrink:0;position:relative;cursor:pointer" onclick="document.getElementById('detayKapakInput').click()" title="Kapak fotoğrafı ekle">
           ${kapakSrc
@@ -200,16 +261,11 @@ function detayAc(id) {
 
         <div style="flex:1;min-width:0">
           <div style="font-size:12px;color:#9ca3af;font-weight:600;margin-bottom:4px">${guvenliYazi(book.kitapKodu || '')}</div>
+          ${adetSatiri}
           <div style="font-size:20px;font-weight:bold;line-height:1.3;margin-bottom:6px;word-break:break-word">${guvenliYazi(book.kitapAdi || '-')}</div>
           <div style="font-size:14px;color:#555;margin-bottom:4px">${guvenliYazi(book.yazar || '-')}</div>
           <span class="status ${statusClass}" style="font-size:12px;padding:5px 10px">${guvenliYazi(durum)}</span>
         </div>
-
-        <button onclick="detayKapat()" style="
-          border:none;background:#f3f4f6;border-radius:50%;
-          width:36px;height:36px;font-size:18px;cursor:pointer;
-          flex-shrink:0;display:flex;align-items:center;justify-content:center;
-        ">✕</button>
       </div>
 
       <!-- eylem butonları -->
