@@ -1,12 +1,13 @@
-// js/liste.js — v67
+// js/liste.js — v68
+// v68: 5 geliştirme
+//   1. Adet sayımı: ISBN'siz kitaplar için "ISBN yok" badge'i, sayım kodu korundu
+//   2. Detay ekranına ISBN satırı eklendi
+//   3. Ödünç ver: prompt() → modal (kişi adı + gün sayısı), iade tarihi hesaplama
+//   4. Ayarlar entegrasyonu: settingsGet'ten oduncGunSayisi default
+//   5. A-Z bar: görsel kompakt (daha küçük font/renk), dokunma alanı korundu
 // v67: Tam UX yenileme — liste ekranı
-//   • Sabit üst bar: 🏠 ana ekran, ⬆️ yukarı, Rafta/Ödünç toggle filtresi
-//   • Arama: kitap adı + yazar + yayınevi (case-insensitive, TR locale)
-//   • Alfabetik sıralama (kitap adına göre, TR locale)
-//   • Adet badge: her zaman gösterilir (1 adet dahil)
-//   • Sağ A-Z bar: dokunarak/sürükleyerek harf navigasyonu + harf overlay
-// v66: Adet badge her zaman gösterilir (> 1 koşulu kaldırıldı)
-// v65: ISBN normalize (temizIsbn), flex-column panel (Kapat butonu fix)
+// v66: Adet badge her zaman gösterilir
+// v65: ISBN normalize (temizIsbn), flex-column panel
 // v64: _isbnSayimHesapla, adet badge, sticky Kapat header
 // v63: kapakHtml localStorage, detayAc overlay, bookUpdate
 
@@ -66,13 +67,14 @@ function kapakHtml(book) {
 }
 
 // ISBN normalize ederek sayım — temizIsbn() ile farklı formatlar eşleşir
+// Not: ISBN'siz kitaplar sayıma dahil edilmez (her biri kendi kaydı)
 function _isbnSayimHesapla(kitaplar) {
   const sayim = {};
   for (const b of kitaplar) {
     const isbn = typeof temizIsbn === 'function'
       ? temizIsbn(b.isbn || '')
       : (b.isbn || '').replace(/[^0-9X]/gi, '').toUpperCase();
-    if (!isbn) continue;
+    if (!isbn) continue; // ISBN'siz kitaplar sayılmaz
     sayim[isbn] = (sayim[isbn] || 0) + 1;
   }
   return sayim;
@@ -152,7 +154,6 @@ function _jumpToLetter(harf) {
   for (const card of cards) {
     const adi = (card.dataset.kitapAdi || '').toLocaleUpperCase('tr');
     if (adi.startsWith(harf)) {
-      // scrollIntoView yerine manuel scroll — fixed header'ı hesaba katar
       const rect      = card.getBoundingClientRect();
       const scrollTop = window.pageYOffset + rect.top - 120;
       window.scrollTo({ top: Math.max(0, scrollTop), behavior: 'smooth' });
@@ -203,7 +204,7 @@ function renderList() {
   filtered = filtered.filter(book => {
     const d = String(book.durum || 'RAFTA').toUpperCase();
     if (d === 'ÖDÜNÇTE') return durumFiltre['ÖDÜNÇTE'];
-    return durumFiltre['RAFTA']; // RAFTA ve diğerleri
+    return durumFiltre['RAFTA'];
   });
 
   // 3. Alfabetik sıralama (TR locale)
@@ -218,7 +219,7 @@ function renderList() {
     return;
   }
 
-  // 4. ISBN sayımı (tüm books, filtrelenmiş değil — gerçek stok)
+  // 4. ISBN sayımı — tüm books (filtresiz), gerçek stok sayısı
   const isbnSayim = _isbnSayimHesapla(books);
 
   list.innerHTML = filtered.map(book => {
@@ -240,15 +241,24 @@ function renderList() {
       ? `<button class="btn btnReturn" onclick="event.stopPropagation();returnBook(${Number(book.id)})">İade Al</button>`
       : `<button class="btn btnReturn btnDisabled" disabled>İade Beklemiyor</button>`;
 
-    // Adet badge — her zaman gösterilir (1 adet dahil)
-    const isbn       = typeof temizIsbn === 'function' ? temizIsbn(book.isbn || '') : (book.isbn || '').replace(/[^0-9X]/gi, '').toUpperCase();
-    const adetSayisi = isbn ? (isbnSayim[isbn] || 1) : 1;
-    const adetBadge  = `<span style="
-        display:inline-block;margin-bottom:5px;
-        background:#dbeafe;color:#1d4ed8;
-        padding:2px 8px;border-radius:999px;
-        font-size:11px;font-weight:700;
-      ">📚 ${adetSayisi} adet</span>`;
+    // Adet badge: ISBN varsa kopya sayısı, yoksa "ISBN yok" göster
+    const isbn = typeof temizIsbn === 'function'
+      ? temizIsbn(book.isbn || '')
+      : (book.isbn || '').replace(/[^0-9X]/gi, '').toUpperCase();
+
+    const adetBadge = isbn
+      ? `<span style="
+            display:inline-block;margin-bottom:5px;
+            background:#dbeafe;color:#1d4ed8;
+            padding:2px 8px;border-radius:999px;
+            font-size:11px;font-weight:700;
+          ">📚 ${isbnSayim[isbn] || 1} adet</span>`
+      : `<span style="
+            display:inline-block;margin-bottom:5px;
+            background:#f3f4f6;color:#9ca3af;
+            padding:2px 8px;border-radius:999px;
+            font-size:11px;font-weight:600;
+          ">📌 ISBN yok</span>`;
 
     // data-kitap-adi: A-Z jump için
     return `
@@ -296,19 +306,36 @@ function detayAc(id) {
 
   const statusClass = durum === 'ÖDÜNÇTE' ? 'oduncte' : durum === 'KAYIP' ? 'kayip' : 'rafta';
 
-  const loanBtn   = durum === 'RAFTA'   ? `<button onclick="loanBook(${Number(book.id)});detayKapat()" style="${_detayBtnStyle('#0b57d0')}">📤 Ödünç Ver</button>` : '';
-  const returnBtn = durum === 'ÖDÜNÇTE' ? `<button onclick="returnBook(${Number(book.id)});detayKapat()" style="${_detayBtnStyle('#047857')}">📥 İade Al</button>` : '';
+  // Detay panelinden Ödünç Ver: önce detayı kapat, sonra modal göster
+  const loanBtn   = durum === 'RAFTA'
+    ? `<button onclick="detayKapat();loanBook(${Number(book.id)})" style="${_detayBtnStyle('#0b57d0')}">📤 Ödünç Ver</button>`
+    : '';
+  const returnBtn = durum === 'ÖDÜNÇTE'
+    ? `<button onclick="returnBook(${Number(book.id)});detayKapat()" style="${_detayBtnStyle('#047857')}">📥 İade Al</button>`
+    : '';
 
-  // Adet sayısı — her zaman göster
+  // Adet satırı — tüm kitap listesinden ISBN sayımı
   const isbn       = typeof temizIsbn === 'function' ? temizIsbn(book.isbn || '') : (book.isbn || '').replace(/[^0-9X]/gi, '').toUpperCase();
   const isbnSayim  = _isbnSayimHesapla(books);
-  const adetSayisi = isbn ? (isbnSayim[isbn] || 1) : 1;
-  const adetSatiri = `<div style="
-      display:inline-flex;align-items:center;gap:5px;
-      background:#dbeafe;color:#1d4ed8;
-      padding:4px 10px;border-radius:999px;
-      font-size:12px;font-weight:700;margin-bottom:8px;
-    ">📚 Toplam ${adetSayisi} adet</div>`;
+
+  const adetSatiri = isbn
+    ? `<div style="
+          display:inline-flex;align-items:center;gap:5px;
+          background:#dbeafe;color:#1d4ed8;
+          padding:4px 10px;border-radius:999px;
+          font-size:12px;font-weight:700;margin-bottom:8px;
+        ">📚 Toplam ${isbnSayim[isbn] || 1} adet</div>`
+    : `<div style="
+          display:inline-flex;align-items:center;gap:5px;
+          background:#f3f4f6;color:#9ca3af;
+          padding:4px 10px;border-radius:999px;
+          font-size:12px;font-weight:600;margin-bottom:8px;
+        ">📌 ISBN yok</div>`;
+
+  // ISBN satırı (Geliştirme #2: detayda ISBN göster)
+  const isbnSatiri = book.isbn
+    ? `<div style="font-size:13px;color:#6b7280;margin-bottom:6px;font-family:monospace;">ISBN: ${guvenliYazi(book.isbn)}</div>`
+    : '';
 
   const old = document.getElementById('detayOverlay');
   if (old) old.remove();
@@ -327,7 +354,7 @@ function detayAc(id) {
       display:flex;flex-direction:column;
       box-shadow:0 -8px 32px rgba(0,0,0,0.18);
     ">
-      <!-- Sabit header: flex-shrink:0 → scroll edilmez, her zaman görünür -->
+      <!-- Sabit header -->
       <div style="
         flex-shrink:0;
         background:#fff;border-radius:22px 22px 0 0;
@@ -369,6 +396,7 @@ function detayAc(id) {
             ${adetSatiri}
             <div style="font-size:20px;font-weight:bold;line-height:1.3;margin-bottom:6px;word-break:break-word">${guvenliYazi(book.kitapAdi || '-')}</div>
             <div style="font-size:14px;color:#555;margin-bottom:4px">${guvenliYazi(book.yazar || '-')}</div>
+            ${isbnSatiri}
             <span class="status ${statusClass}" style="font-size:12px;padding:5px 10px">${guvenliYazi(durum)}</span>
           </div>
         </div>
@@ -525,15 +553,194 @@ function _detayInputStyle() {
     'border:1px solid #d1d5db;border-radius:12px;background:#fff;outline:none;display:block;';
 }
 
+// ── Ödünç Modal (Geliştirme #3 + #4) ─────────────────────────────────────
+/**
+ * Ödünç verme modalını gösterir.
+ * @param {number} defaultGun  — Varsayılan gün sayısı (ayarlardan gelir)
+ * @returns {Promise<{borrower:string, gun:number}|null>}  — null = iptal edildi
+ */
+function _oduncModalGoster(defaultGun) {
+  return new Promise((resolve) => {
+    const old = document.getElementById('oduncOverlay');
+    if (old) old.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'oduncOverlay';
+    overlay.style.cssText = [
+      'position:fixed;inset:0;z-index:3000;',
+      'background:rgba(0,0,0,0.55);',
+      'display:flex;align-items:flex-end;justify-content:center;'
+    ].join('');
+
+    overlay.innerHTML = `
+      <div id="oduncPanel" style="
+        background:#fff;border-radius:22px 22px 0 0;
+        width:100%;max-width:500px;
+        padding:20px 20px calc(20px + env(safe-area-inset-bottom,0px));
+        box-shadow:0 -8px 32px rgba(0,0,0,0.18);
+      ">
+        <div style="text-align:center;margin-bottom:16px">
+          <div style="width:40px;height:4px;border-radius:2px;background:#d1d5db;display:inline-block"></div>
+        </div>
+        <div style="font-size:18px;font-weight:bold;color:#111;margin-bottom:18px">📤 Ödünç Ver</div>
+
+        <label style="display:block;font-size:14px;font-weight:600;color:#374151;margin-bottom:6px">
+          Ödünç Alan
+        </label>
+        <input
+          id="oduncAlanInput"
+          type="text"
+          placeholder="Kişi adı..."
+          autocomplete="off"
+          autocapitalize="words"
+          style="
+            width:100%;box-sizing:border-box;padding:13px 14px;font-size:16px;
+            border:1.5px solid #d1d5db;border-radius:12px;background:#fff;outline:none;
+            display:block;margin-bottom:16px;
+          "
+        >
+
+        <label style="display:block;font-size:14px;font-weight:600;color:#374151;margin-bottom:6px">
+          Kaç Gün Ödünç?
+        </label>
+        <input
+          id="oduncGunInput"
+          type="number"
+          min="1"
+          max="365"
+          value="${Number(defaultGun) || 15}"
+          style="
+            width:100%;box-sizing:border-box;padding:13px 14px;font-size:16px;
+            border:1.5px solid #d1d5db;border-radius:12px;background:#fff;outline:none;
+            display:block;margin-bottom:6px;
+          "
+        >
+        <div id="oduncIadeTarihGoster" style="font-size:13px;color:#6b7280;margin-bottom:16px;min-height:20px;"></div>
+
+        <div id="oduncMesaj" style="
+          display:none;padding:10px 14px;border-radius:10px;
+          font-size:14px;font-weight:bold;margin-bottom:12px;
+          background:#fee2e2;color:#991b1b;
+        "></div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <button id="oduncIptalBtn" style="
+            border:none;border-radius:12px;padding:15px;
+            font-size:15px;font-weight:bold;
+            background:#f3f4f6;color:#374151;cursor:pointer;
+            -webkit-tap-highlight-color:transparent;
+          ">İptal</button>
+          <button id="oduncOnayBtn" style="
+            border:none;border-radius:12px;padding:15px;
+            font-size:15px;font-weight:bold;
+            background:#0b57d0;color:#fff;cursor:pointer;
+            -webkit-tap-highlight-color:transparent;
+          ">Ödünç Ver</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    // Açılış animasyonu
+    const panel = overlay.querySelector('#oduncPanel');
+    panel.style.transform = 'translateY(100%)';
+    panel.style.transition = 'transform 0.25s ease';
+    requestAnimationFrame(() => { panel.style.transform = 'translateY(0)'; });
+
+    // İlk odak
+    setTimeout(() => document.getElementById('oduncAlanInput')?.focus(), 300);
+
+    // İade tarihi güncelle
+    function _guncelleIadeTarih() {
+      const gun = parseInt(document.getElementById('oduncGunInput')?.value, 10) || 0;
+      const el  = document.getElementById('oduncIadeTarihGoster');
+      if (!el) return;
+      if (gun > 0) {
+        const d = new Date();
+        d.setDate(d.getDate() + gun);
+        el.textContent = `İade tarihi: ${d.toLocaleDateString('tr-TR', { day:'numeric', month:'long', year:'numeric' })}`;
+      } else {
+        el.textContent = '';
+      }
+    }
+    _guncelleIadeTarih();
+    document.getElementById('oduncGunInput')?.addEventListener('input', _guncelleIadeTarih);
+
+    function _kapat(result) {
+      panel.style.transform = 'translateY(100%)';
+      setTimeout(() => overlay.remove(), 250);
+      resolve(result);
+    }
+
+    // İptal
+    document.getElementById('oduncIptalBtn').addEventListener('click', () => _kapat(null));
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) _kapat(null); });
+
+    // Onay
+    function _onay() {
+      const borrower = (document.getElementById('oduncAlanInput')?.value || '').trim();
+      const gun      = parseInt(document.getElementById('oduncGunInput')?.value, 10);
+      const mesajEl  = document.getElementById('oduncMesaj');
+
+      if (!borrower) {
+        if (mesajEl) {
+          mesajEl.style.display = 'block';
+          mesajEl.textContent   = 'Ödünç alan kişi adı zorunlu';
+        }
+        document.getElementById('oduncAlanInput')?.focus();
+        return;
+      }
+      if (!gun || gun < 1 || gun > 365) {
+        if (mesajEl) {
+          mesajEl.style.display = 'block';
+          mesajEl.textContent   = 'Gün sayısı 1 ile 365 arasında olmalı';
+        }
+        document.getElementById('oduncGunInput')?.focus();
+        return;
+      }
+      _kapat({ borrower, gun });
+    }
+
+    document.getElementById('oduncOnayBtn').addEventListener('click', _onay);
+
+    // Enter tuşu navigasyonu
+    document.getElementById('oduncAlanInput')?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') document.getElementById('oduncGunInput')?.focus();
+    });
+    document.getElementById('oduncGunInput')?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') _onay();
+    });
+  });
+}
+
 // ── Ödünç / İade ──────────────────────────────────────────────────────────
 async function loanBook(id) {
   listeMesajTemizle();
-  const borrower = prompt('Kitabı kime veriyorsun?');
-  if (borrower === null) return;
-  const cleanBorrower = borrower.trim();
-  if (!cleanBorrower) { listeMesaj('Ödünç alan kişi adı zorunlu', 'warn'); return; }
+
+  // Ayarlardan varsayılan gün sayısını al (Geliştirme #4)
+  let defaultGun = 15;
   try {
-    const result = await apiPost({ action: 'loanBook', id, borrower: cleanBorrower });
+    const userKey = typeof getUserKey === 'function' ? getUserKey() : 'demo-user';
+    const s = await apiPost({ action: 'settingsGet', userKey });
+    if (s.ok && s.data && s.data.oduncGunSayisi > 0) {
+      defaultGun = s.data.oduncGunSayisi;
+    }
+  } catch (_) { /* ayarlara ulaşılamazsa varsayılan kullanılır */ }
+
+  // Modal göster (Geliştirme #3)
+  const sonuc = await _oduncModalGoster(defaultGun);
+  if (!sonuc) return; // kullanıcı iptal etti
+
+  const { borrower, gun } = sonuc;
+
+  // İade tarihini hesapla
+  const iadeGun = new Date();
+  iadeGun.setDate(iadeGun.getDate() + gun);
+  const returnDate = iadeGun.toISOString().slice(0, 10); // YYYY-MM-DD
+
+  try {
+    const result = await apiPost({ action: 'loanBook', id, borrower, returnDate });
     if (!result.ok) { listeMesaj(result.error || 'Ödünç verme hatası', 'error'); return; }
     listeMesaj(result.message || 'Kitap ödünç verildi', 'success');
     await loadBooks();

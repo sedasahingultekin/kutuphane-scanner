@@ -438,9 +438,10 @@ export default {
 
       // ─────────────────────────────────────────────────────────────────────
       if (action === "loanBook") {
-        const id       = Number(body.id       || 0);
-        const borrower = cleanText(body.borrower || "");
-        const today    = new Date().toISOString().slice(0, 10);
+        const id         = Number(body.id         || 0);
+        const borrower   = cleanText(body.borrower   || "");
+        const returnDate = cleanText(body.returnDate  || "");
+        const today      = new Date().toISOString().slice(0, 10);
 
         if (!id || !borrower) {
           return jsonResponse(
@@ -453,14 +454,18 @@ export default {
         await env.DB
           .prepare(`
             UPDATE books
-            SET status = 'ÖDÜNÇTE', borrower = ?, loan_date = ?, return_date = ''
+            SET status = 'ÖDÜNÇTE', borrower = ?, loan_date = ?, return_date = ?
             WHERE id = ?
           `)
-          .bind(borrower, today, id)
+          .bind(borrower, today, returnDate, id)
           .run();
 
+        const mesaj = returnDate
+          ? `Kitap ödünç verildi (iade: ${returnDate})`
+          : 'Kitap ödünç verildi';
+
         return jsonResponse(
-          { ok: true, message: "Kitap ödünç verildi" },
+          { ok: true, message: mesaj },
           200,
           corsHeaders
         );

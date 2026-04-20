@@ -84,7 +84,7 @@
     .app {
       max-width: 900px;
       margin: 0 auto;
-      padding: 124px 40px 24px 14px; /* top=112+12, right=28px A-Z + 12 */
+      padding: 124px 34px 24px 14px; /* top=112+12, right=22px A-Z + 12 */
     }
 
     .list {
@@ -236,7 +236,7 @@
       right: 0;
       top: 112px;
       bottom: 0;
-      width: 28px;
+      width: 22px;           /* Geliştirme #5: daha dar bar */
       z-index: 400;
       display: flex;
       flex-direction: column;
@@ -248,17 +248,18 @@
       touch-action: none;
     }
 
+    /* Geliştirme #5: kompakt görünüm, dokunma alanı korundu */
     .azLetter {
-      font-size: 9px;
-      font-weight: 800;
-      color: #0b57d0;
+      font-size: 7px;
+      font-weight: 700;
+      color: #93c5fd;        /* soluk mavi — daha az dikkat dağıtıcı */
       line-height: 1;
       cursor: pointer;
-      padding: 2px 4px;
+      padding: 3px 5px;      /* görsel küçük ama dokunma alanı yeterli */
       border-radius: 4px;
       -webkit-tap-highlight-color: transparent;
     }
-    .azLetter:active { background: #dbeafe; }
+    .azLetter:active { background: #dbeafe; color: #1d4ed8; }
 
     /* ── Harf Overlay ────────────────────────────────────────────── */
     #azOverlay {
@@ -320,6 +321,6 @@
   <script src="./js/api.js?v=63"></script>
   <script src="./js/camera.js?v=63"></script>
   <script src="./js/utils.js?v=63"></script>
-  <script src="./js/liste.js?v=73"></script>
+  <script src="./js/liste.js?v=74"></script>
 </body>
 </html>
