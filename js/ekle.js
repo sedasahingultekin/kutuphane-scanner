@@ -1,9 +1,11 @@
-// js/ekle.js — v64
-// v64: 3 düzeltme
-//   1. Duplicate ISBN: isbnBilgisiGetir() → Ekle/Geç panel (hızlı ekle mantığı)
-//      kitapEkle() duplicate yanıtında da Geç butonu eklendi
-//   2. mesajKutusu Kaydet butonunun ÜSTÜNE taşındı (scroll gerekmez)
-//   3. formuTemizle() — Geç aksiyonu için
+// js/ekle.js — v65
+// v65: 3 düzeltme
+//   1. forceAdd=true: sonuc.duplicate + 'zaten' kontrolleri atlanır (hızlı_ekle mantığı)
+//      Root cause: kitapEkle(true) çalışıyordu ama worker yanıtı yanlış dalda değerlendiriliyordu
+//   2. mesajKutusu ekleKitapAlani'nın HEMEN ALTINA taşındı (ISBN bölümünden sonra, form üstü)
+//      Root cause: mesajKutusu tüm form alanlarının altındaydı, scroll gerekiyordu
+//   3. mesajGoster → kutu.scrollIntoView eklendi
+// v64: Duplicate ISBN: isbnBilgisiGetir() → Ekle/Geç panel, mesajKutusu Kaydet üstüne
 // v63: basHarfBuyut global, forceAdd duplicate bypass
 
 // ── Kamera ────────────────────────────────────────────────────────────────
@@ -265,6 +267,9 @@ function ekleForm() {
       <!-- Kitap önizleme + duplicate seçenek paneli buraya eklenir -->
       <div id="ekleKitapAlani"></div>
 
+      <!-- v65: mesajKutusu ISBN bölümünün hemen altında — scroll gerekmez -->
+      <div id="mesajKutusu" class="mesajKutusu"></div>
+
       <label class="formLabel">Kitap Adı</label>
       <input class="formInput" type="text" id="kitapAdi" placeholder="Kitap adı">
 
@@ -279,9 +284,6 @@ function ekleForm() {
 
       <label class="formLabel">Not</label>
       <textarea class="formTextarea" id="notText" placeholder="İsteğe bağlı not"></textarea>
-
-      <!-- v64: mesajKutusu Kaydet butonunun ÜSTÜNDE — kullanıcı scroll etmez -->
-      <div id="mesajKutusu" class="mesajKutusu"></div>
 
       <button class="actionBtn greenBtn" id="kaydetBtn" onclick="kitapEkle(false)">Kaydet</button>
     </div>
@@ -464,18 +466,21 @@ async function kitapEkle(forceAdd) {
       return;
     }
 
-    // v64: duplicate → Ekle/Geç seçeneği (Geç de var artık)
-    if (sonuc.duplicate) {
-      _ekleGecPaneliGoster('Bu ISBN ile kayıtlı bir kitap zaten var. İkinci kopya olarak eklemek ister misiniz?');
-      return;
+    // v65: forceAdd=true ise ok:true her zaman başarı — duplicate/zaten kontrolleri atlanır
+    // (hızlı_ekle mantığının aynısı: kullanıcı bilinçli olarak "Ekle" seçti)
+    if (!forceAdd) {
+      if (sonuc.duplicate) {
+        _ekleGecPaneliGoster('Bu ISBN ile kayıtlı bir kitap zaten var. İkinci kopya olarak eklemek ister misiniz?');
+        return;
+      }
+      const mesajKontrol = String(sonuc.message || '');
+      if (mesajKontrol.toLowerCase().includes('zaten')) {
+        mesajGoster(mesajKontrol, 'error');
+        return;
+      }
     }
 
     const mesaj = String(sonuc.message || '');
-    if (mesaj.toLowerCase().includes('zaten')) {
-      mesajGoster(mesaj, 'error');
-      return;
-    }
-
     mesajGoster(mesaj || 'Kitap kaydedildi', 'success');
 
     // Formu temizle
