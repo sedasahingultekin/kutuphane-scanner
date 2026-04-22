@@ -1,4 +1,4 @@
-const API_URL = 'https://little-heart-9411.sedasahingultekin.workers.dev';
+const API_URL = 'https://kutuphane-api.ahmetgultekin.workers.dev';
 
 async function apiPost(payload) {
   const response = await fetch(API_URL, {
