@@ -213,13 +213,13 @@ export default {
 
         if (!kitapAdi || !yazar) {
           return jsonResponse(
-            { ok: true, message: "Kitap adı ve yazar zorunlu" },
-            200,
+            { ok: false, error: "Kitap adı ve yazar zorunlu" },
+            400,
             corsHeaders
           );
         }
 
-        // v63: forceAdd=true ise ISBN kontrolü atlanır
+        // forceAdd=true ise ISBN kontrolü atlanır → ikinci kopya eklenir
         if (isbn && !forceAdd) {
           const existing = await env.DB
             .prepare("SELECT * FROM books WHERE isbn = ? LIMIT 1")

@@ -1,4 +1,9 @@
-// js/liste.js — v70
+// js/liste.js — v71
+// v71: Kart sadeleştirme
+//   - Listede gösterilmeyecek: yıl, ödünç alan, ödünç tarihi, iade tarihi
+//   - Adet + durum tek satırda badge olarak gösterilir: "📚 N adet • DURUM"
+//   - Detay ekranı etkilenmedi
+// v70: min-height:0 iOS Safari flex fix (Kapat butonu her zaman görünür)
 // v69: 4 düzeltme
 //   1. ADET: _normIsbn() — temizIsbn/KutuphaneCamera bağımlılığı kaldırıldı,
 //            tüm sayım tek tutarlı fonksiyonla; console.log ile debug
@@ -301,10 +306,6 @@ function renderList() {
     if (durum === 'ÖDÜNÇTE') statusClass = 'oduncte';
     if (durum === 'KAYIP')   statusClass = 'kayip';
 
-    const borrower   = book.oduncAlan   || '-';
-    const loanDate   = book.oduncTarihi || '-';
-    const returnDate = book.iadeTarihi  || '-';
-
     const loanButton = durum === 'RAFTA'
       ? `<button class="btn btnLoan" onclick="event.stopPropagation();loanBook(${Number(book.id)})">Ödünç Ver</button>`
       : `<button class="btn btnLoan btnDisabled" disabled>Ödünç Verilemez</button>`;
@@ -317,19 +318,26 @@ function renderList() {
     const isbnKey    = _normIsbn(book.isbn);
     const adetSayisi = isbnKey ? (isbnSayim[isbnKey] || 1) : 0;
 
-    const adetBadge = isbnKey
+    // v71: adet + durum tek badge — yıl / ödünç bilgileri kaldırıldı (detayda gösterilir)
+    const durumRenk = durum === 'ÖDÜNÇTE'
+      ? { bg: '#fee2e2', fg: '#991b1b' }
+      : durum === 'KAYIP'
+      ? { bg: '#fef3c7', fg: '#92400e' }
+      : { bg: '#d1fae5', fg: '#065f46' };
+
+    const adetDurumBadge = isbnKey
       ? `<span style="
-            display:inline-block;margin-bottom:5px;
-            background:#dbeafe;color:#1d4ed8;
-            padding:2px 8px;border-radius:999px;
-            font-size:11px;font-weight:700;
-          ">📚 ${adetSayisi} adet</span>`
+            display:inline-flex;align-items:center;gap:4px;margin-bottom:6px;
+            background:${durumRenk.bg};color:${durumRenk.fg};
+            padding:3px 10px;border-radius:999px;
+            font-size:12px;font-weight:700;
+          ">📚 ${adetSayisi} adet &bull; ${guvenliYazi(durum)}</span>`
       : `<span style="
-            display:inline-block;margin-bottom:5px;
-            background:#f3f4f6;color:#9ca3af;
-            padding:2px 8px;border-radius:999px;
-            font-size:11px;font-weight:600;
-          ">📌 ISBN yok</span>`;
+            display:inline-flex;align-items:center;gap:4px;margin-bottom:6px;
+            background:${durumRenk.bg};color:${durumRenk.fg};
+            padding:3px 10px;border-radius:999px;
+            font-size:12px;font-weight:700;
+          ">${guvenliYazi(durum)}</span>`;
 
     return `
       <div class="card" data-kitap-adi="${safeAttr(book.kitapAdi || '')}">
@@ -339,16 +347,11 @@ function renderList() {
           </div>
           <div class="cardBody">
             <div class="codeBadge">${guvenliYazi(book.kitapKodu || '-')}</div>
-            ${adetBadge}
+            ${adetDurumBadge}
             <div class="title">${guvenliYazi(book.kitapAdi || '-')}</div>
             <div class="line"><strong>Yazar:</strong> ${guvenliYazi(book.yazar || '-')}</div>
             <div class="line"><strong>ISBN:</strong> ${guvenliYazi(book.isbn || '-')}</div>
             <div class="line"><strong>Yayınevi:</strong> ${guvenliYazi(book.yayinevi || '-')}</div>
-            <div class="line"><strong>Yıl:</strong> ${guvenliYazi(book.yayinYili || '-')}</div>
-            <div class="line"><strong>Ödünç Alan:</strong> ${guvenliYazi(borrower)}</div>
-            <div class="line"><strong>Ödünç Tarihi:</strong> ${guvenliYazi(loanDate)}</div>
-            <div class="line"><strong>İade Tarihi:</strong> ${guvenliYazi(returnDate)}</div>
-            <div class="status ${statusClass}">${guvenliYazi(durum)}</div>
           </div>
         </div>
         <div class="actions">

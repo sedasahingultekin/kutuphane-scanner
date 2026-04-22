@@ -1,10 +1,11 @@
-// js/ekle.js — v65
-// v65: 3 düzeltme
-//   1. forceAdd=true: sonuc.duplicate + 'zaten' kontrolleri atlanır (hızlı_ekle mantığı)
-//      Root cause: kitapEkle(true) çalışıyordu ama worker yanıtı yanlış dalda değerlendiriliyordu
-//   2. mesajKutusu ekleKitapAlani'nın HEMEN ALTINA taşındı (ISBN bölümünden sonra, form üstü)
-//      Root cause: mesajKutusu tüm form alanlarının altındaydı, scroll gerekiyordu
-//   3. mesajGoster → kutu.scrollIntoView eklendi
+// js/ekle.js — v66
+// v66: forceAdd diagnostic
+//   - forceAdd=true iken sonuc.duplicate=true → "Worker deploy edilmemiş" açık hata
+//   - forceAdd=true iken ok=true ama message "kaydedildi" içermiyorsa → açık hata
+//   - Root cause: Cloudflare'e deploy edilmemiş eski worker forceAdd'i tanımıyor,
+//     her duplicate için { ok:true, duplicate:true } döndürüyor.
+//     v65 bunu başarı sayıyordu; v66 gerçek hata mesajı gösteriyor.
+// v65: forceAdd=true: duplicate/zaten kontrolleri atlanır (hızlı_ekle mantığı)
 // v64: Duplicate ISBN: isbnBilgisiGetir() → Ekle/Geç panel, mesajKutusu Kaydet üstüne
 // v63: basHarfBuyut global, forceAdd duplicate bypass
 
@@ -466,21 +467,30 @@ async function kitapEkle(forceAdd) {
       return;
     }
 
-    // v65: forceAdd=true ise ok:true her zaman başarı — duplicate/zaten kontrolleri atlanır
-    // (hızlı_ekle mantığının aynısı: kullanıcı bilinçli olarak "Ekle" seçti)
-    if (!forceAdd) {
-      if (sonuc.duplicate) {
+    // v66: forceAdd=true → duplicate görmemeli. Görüyorsa worker deploy edilmemiş demektir.
+    if (sonuc.duplicate) {
+      if (forceAdd) {
+        // Worker forceAdd'i tanımıyor (eski deploy) — kullanıcıya açık hata ver
+        mesajGoster(
+          '⚠️ Worker güncel değil: worker.js\'i Cloudflare\'e yeniden deploy edin.',
+          'error'
+        );
+      } else {
         _ekleGecPaneliGoster('Bu ISBN ile kayıtlı bir kitap zaten var. İkinci kopya olarak eklemek ister misiniz?');
-        return;
       }
-      const mesajKontrol = String(sonuc.message || '');
-      if (mesajKontrol.toLowerCase().includes('zaten')) {
-        mesajGoster(mesajKontrol, 'error');
+      return;
+    }
+
+    const mesaj = String(sonuc.message || '');
+
+    // forceAdd=true → başarılı insert "kaydedildi" içerir; içermiyorsa hata
+    if (!forceAdd) {
+      if (mesaj.toLowerCase().includes('zaten')) {
+        mesajGoster(mesaj, 'error');
         return;
       }
     }
 
-    const mesaj = String(sonuc.message || '');
     mesajGoster(mesaj || 'Kitap kaydedildi', 'success');
 
     // Formu temizle
