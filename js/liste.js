@@ -1,33 +1,63 @@
-// js/liste.js — v72
+// js/liste.js — v79
+// v79: ISBN bazlı gruplama
+//   - Liste: aynı ISBN'li kitaplar tek kartta, adet + durum dağılımı badge
+//   - Detay: tüm kopyalar satır satır listelenir (KTP-0001 — Rafta)
+//   - Ödünç ver: gruptaki ilk RAFTA kopya otomatik seçilir
+//   - İade al: tek ÖDÜNÇTE ise direkt; birden fazla ise seçim modali
+//   - Düzenle: gruptaki tüm kopyalar aynı anda güncellenir
+//   - Gruplama önceliği: ISBN → kitapAdı+yazar+yayınevi
 // v72: Durum dağılımlı badge
-//   - _isbnSayimHesapla: artık { toplam, rafta, oduncte, kayip } döndürüyor
-//   - renderList: "📚 2 adet • 1 Rafta • 1 Ödünçte" formatında badge
-//   - Renk: tüm rafta → yeşil, tüm ödünçte → kırmızı, karışık → amber
-//   - detayAc: aynı breakdown gösterimi
-// v71: Kart sadeleştirme — yıl, ödünç bilgileri kaldırıldı
+// v71: Kart sadeleştirme
 // v70: min-height:0 iOS Safari flex fix
-// v69: 4 düzeltme
-//   1. ADET: _normIsbn() — temizIsbn/KutuphaneCamera bağımlılığı kaldırıldı,
-//            tüm sayım tek tutarlı fonksiyonla; console.log ile debug
-//   2. KAPAT: detay panelde sticky footer büyük Kapat butonu (mobil thumb-friendly)
-//   3. AUTOCOMPLETE: yazar + yayınevi inputları için akıllı dropdown (detayAc)
-//   4. AUTOCOMPLETE: ödünç alan inputu için geçmiş kişi önerileri (_oduncModalGoster)
-// v68: loanBook modal, ISBN detayda, A-Z kompakt, ayarlar entegrasyonu
-// v67: Tam UX yenileme — liste ekranı
-// v65: ISBN normalize, flex-column panel
-// v63: kapakHtml localStorage, detayAc overlay, bookUpdate
+// v69: Autocomplete, sticky kapat, _normIsbn
 
 // ── State ─────────────────────────────────────────────────────────────────
-let books = [];
+let books     = [];      // API'den gelen ham liste
+let gruplar   = [];      // _grupla(books) çıktısı — tüm gruplar
+let _dispGrup = [];      // son renderList'te görünen gruplar (onclick referansı)
+let _detayGrupIdx = -1;  // açık detay panelinin _dispGrup indeksi
 let durumFiltre = { 'RAFTA': true, 'ÖDÜNÇTE': true };
 
 const TR_ALFABE = 'ABCÇDEFGĞHIİJKLMNOÖPRSŞTUÜVYZ';
 
-// ── ISBN Normalize — YEREL, temizIsbn'den bağımsız ───────────────────────
-// Root cause fix: temizIsbn → KutuphaneCamera.temizKod zincirini bypass eder.
-// _isbnSayimHesapla, renderList ve detayAc hep bu fonksiyonu kullanır → tutarlı key.
+// ── ISBN Normalize — yerel, bağımsız ─────────────────────────────────────
 function _normIsbn(raw) {
   return String(raw || '').toUpperCase().replace(/[^0-9X]/g, '').trim();
+}
+
+// ── Gruplama ──────────────────────────────────────────────────────────────
+// Her kitabı ISBN'e (varsa) veya kitapAdı+yazar+yayınevi'ne göre gruplar.
+function _grupla(kitaplar) {
+  const map = new Map();
+  for (const b of kitaplar) {
+    const isbn = _normIsbn(b.isbn);
+    const fallback = [
+      String(b.kitapAdi || '').toLocaleLowerCase('tr').trim(),
+      String(b.yazar    || '').toLocaleLowerCase('tr').trim(),
+      String(b.yayinevi || '').toLocaleLowerCase('tr').trim()
+    ].join('||');
+    const key = isbn || fallback || ('id:' + b.id);  // en son çare: tek kayıt
+    if (!map.has(key)) {
+      map.set(key, {
+        grupKey:   key,
+        isbn:      b.isbn      || '',
+        kitapAdi:  b.kitapAdi  || '',
+        yazar:     b.yazar     || '',
+        yayinevi:  b.yayinevi  || '',
+        yayinYili: b.yayinYili || '',
+        kopya:  [],
+        toplam: 0, rafta: 0, oduncte: 0, kayip: 0
+      });
+    }
+    const g = map.get(key);
+    g.kopya.push(b);
+    g.toplam++;
+    const d = String(b.durum || 'RAFTA').toUpperCase();
+    if (d === 'ÖDÜNÇTE')    g.oduncte++;
+    else if (d === 'KAYIP') g.kayip++;
+    else                    g.rafta++;
+  }
+  return [...map.values()];
 }
 
 // ── Yardımcılar ───────────────────────────────────────────────────────────
@@ -60,61 +90,59 @@ function kapakUrlOlustur(isbn) {
   return 'https://covers.openlibrary.org/b/isbn/' + encodeURIComponent(temiz) + '-M.jpg';
 }
 
-function kapakHtml(book) {
-  const localKapak = localStorage.getItem('kapak_' + book.id);
-  if (localKapak) {
-    return `<img class="coverImg" src="${safeAttr(localKapak)}" alt="Kapak" loading="lazy">`;
+// Grup kapak HTML — gruptaki ilk kopyanın id'sinden localStorage dener
+function _kapakHtmlGrup(g) {
+  const ilkId    = g.kopya[0]?.id;
+  const local    = ilkId ? localStorage.getItem('kapak_' + ilkId) : null;
+  if (local) {
+    return `<img class="coverImg" src="${safeAttr(local)}" alt="Kapak" loading="lazy">`;
   }
-  const url = kapakUrlOlustur(book.isbn || '');
+  const url = kapakUrlOlustur(g.isbn);
   if (!url) return `<div class="coverPlaceholder">📘</div>`;
-  return `
-    <img
-      class="coverImg"
-      src="${safeAttr(url)}"
-      alt="Kapak"
-      loading="lazy"
-      referrerpolicy="no-referrer"
-      onerror="this.outerHTML='<div class=&quot;coverPlaceholder&quot;>📘</div>'"
-    >
-  `;
+  return `<img class="coverImg" src="${safeAttr(url)}" alt="Kapak" loading="lazy"
+            referrerpolicy="no-referrer"
+            onerror="this.outerHTML='<div class=&quot;coverPlaceholder&quot;>📘</div>'">`;
 }
 
-// ISBN sayım — her ISBN için { toplam, rafta, oduncte, kayip } döndürür
-// v72: durum dağılımı eklendi (önceden sadece toplam sayısı vardı)
-function _isbnSayimHesapla(kitaplar) {
-  const sayim = {};
-  for (const b of kitaplar) {
-    const isbn = _normIsbn(b.isbn);
-    if (!isbn) continue;
-    if (!sayim[isbn]) sayim[isbn] = { toplam: 0, rafta: 0, oduncte: 0, kayip: 0 };
-    sayim[isbn].toplam++;
-    const d = String(b.durum || 'RAFTA').toUpperCase();
-    if (d === 'ÖDÜNÇTE')    sayim[isbn].oduncte++;
-    else if (d === 'KAYIP') sayim[isbn].kayip++;
-    else                    sayim[isbn].rafta++;
-  }
-  return sayim;
+// Durum badge metni ve rengi — grup nesnesinden hesaplar
+function _durumBadge(g) {
+  const p = [];
+  if (g.rafta   > 0) p.push(g.rafta   + ' Rafta');
+  if (g.oduncte > 0) p.push(g.oduncte + ' Ödünçte');
+  if (g.kayip   > 0) p.push(g.kayip   + ' Kayıp');
+  const tekst = p.join(' • ');
+  let bg, fg;
+  if      (g.oduncte > 0 && g.rafta === 0 && g.kayip === 0) { bg = '#fee2e2'; fg = '#991b1b'; }
+  else if (g.oduncte > 0 || g.kayip > 0)                    { bg = '#fef3c7'; fg = '#92400e'; }
+  else                                                        { bg = '#d1fae5'; fg = '#065f46'; }
+  return { tekst, bg, fg };
+}
+
+// ── Stil yardımcıları ─────────────────────────────────────────────────────
+function _detayBtnStyle(bg) {
+  return `display:block;width:100%;padding:14px;font-size:16px;font-weight:bold;
+    border:none;border-radius:14px;background:${bg};color:#fff;cursor:pointer;
+    -webkit-tap-highlight-color:transparent;`;
+}
+function _detayLabelStyle() {
+  return 'display:block;font-size:14px;font-weight:600;color:#374151;margin:12px 0 5px;';
+}
+function _detayInputStyle() {
+  return 'width:100%;box-sizing:border-box;padding:12px 14px;font-size:15px;' +
+    'border:1px solid #d1d5db;border-radius:12px;background:#fff;outline:none;display:block;';
 }
 
 // ── Autocomplete ──────────────────────────────────────────────────────────
-// position:fixed kullanır → overflow-y:auto klipleme sorununu aşar
 function _autocompleteSetup(inputEl, suggestions) {
   if (!inputEl || !suggestions || !suggestions.length) return;
-
-  // Eski dropdown varsa temizle
   document.querySelectorAll('._acDrop[data-forinput="' + inputEl.id + '"]').forEach(d => d.remove());
 
   const drop = document.createElement('div');
   drop.className = '_acDrop';
   drop.dataset.forinput = inputEl.id;
-  drop.style.cssText = [
-    'display:none;position:fixed;',
-    'background:#fff;',
-    'border:1.5px solid #d1d5db;border-radius:12px;',
-    'box-shadow:0 6px 20px rgba(0,0,0,0.14);',
-    'z-index:9900;',
-    'max-height:180px;overflow-y:auto;'
-  ].join('');
+  drop.style.cssText = 'display:none;position:fixed;background:#fff;' +
+    'border:1.5px solid #d1d5db;border-radius:12px;' +
+    'box-shadow:0 6px 20px rgba(0,0,0,0.14);z-index:9900;max-height:180px;overflow-y:auto;';
   document.body.appendChild(drop);
 
   function _reposition() {
@@ -134,7 +162,6 @@ function _autocompleteSetup(inputEl, suggestions) {
     ).join('');
     drop.style.display = 'block';
     _reposition();
-
     drop.querySelectorAll('[data-val]').forEach(el => {
       function _pick() {
         inputEl.value = el.dataset.val;
@@ -151,18 +178,15 @@ function _autocompleteSetup(inputEl, suggestions) {
     if (!q) { drop.style.display = 'none'; return; }
     _showDrop(suggestions.filter(s => s.toLocaleLowerCase('tr').includes(q)));
   });
-
   inputEl.addEventListener('focus', () => {
     const q = inputEl.value.trim().toLocaleLowerCase('tr');
     if (q) _showDrop(suggestions.filter(s => s.toLocaleLowerCase('tr').includes(q)));
   });
-
   inputEl.addEventListener('blur', () => {
     setTimeout(() => { drop.style.display = 'none'; }, 220);
   });
 }
 
-// Tüm _acDrop'ları temizle (overlay kapanınca çağrılır)
 function _autocompleteTemizle() {
   document.querySelectorAll('._acDrop').forEach(d => d.remove());
 }
@@ -171,16 +195,8 @@ function _autocompleteTemizle() {
 function _topBarRender() {
   const r = document.getElementById('filtrRafta');
   const o = document.getElementById('filtrOdunc');
-  if (r) {
-    r.style.background = durumFiltre['RAFTA'] ? '#047857' : '#374151';
-    r.style.color      = '#fff';
-    r.style.opacity    = durumFiltre['RAFTA'] ? '1' : '0.45';
-  }
-  if (o) {
-    o.style.background = durumFiltre['ÖDÜNÇTE'] ? '#b91c1c' : '#374151';
-    o.style.color      = '#fff';
-    o.style.opacity    = durumFiltre['ÖDÜNÇTE'] ? '1' : '0.45';
-  }
+  if (r) { r.style.background = durumFiltre['RAFTA']   ? '#047857' : '#374151'; r.style.color = '#fff'; r.style.opacity = durumFiltre['RAFTA']   ? '1' : '0.45'; }
+  if (o) { o.style.background = durumFiltre['ÖDÜNÇTE'] ? '#b91c1c' : '#374151'; o.style.color = '#fff'; o.style.opacity = durumFiltre['ÖDÜNÇTE'] ? '1' : '0.45'; }
 }
 
 function _toggleDurum(durum) {
@@ -193,20 +209,14 @@ function _toggleDurum(durum) {
 function _azBarKur() {
   const bar = document.getElementById('azBar');
   if (!bar) return;
-
   bar.innerHTML = TR_ALFABE.split('').map(h =>
     `<span class="azLetter" data-harf="${h}">${h}</span>`
   ).join('');
-
-  bar.addEventListener('touchstart', _azTouch, { passive: false });
-  bar.addEventListener('touchmove',  _azTouch, { passive: false });
-  bar.addEventListener('touchend',   _azTouchEnd, { passive: false });
-
+  bar.addEventListener('touchstart', _azTouch,   { passive: false });
+  bar.addEventListener('touchmove',  _azTouch,   { passive: false });
+  bar.addEventListener('touchend',   _azTouchEnd,{ passive: false });
   bar.querySelectorAll('.azLetter').forEach(el => {
-    el.addEventListener('click', () => {
-      _jumpToLetter(el.dataset.harf);
-      _harfOverlayGoster(el.dataset.harf);
-    });
+    el.addEventListener('click', () => { _jumpToLetter(el.dataset.harf); _harfOverlayGoster(el.dataset.harf); });
   });
 }
 
@@ -221,26 +231,23 @@ function _azTouch(e) {
   const y        = Math.max(0, Math.min(rect.height, touch.clientY - rect.top));
   const fraction = y / rect.height;
   const idx      = Math.min(TR_ALFABE.length - 1, Math.floor(fraction * TR_ALFABE.length));
-  const harf     = TR_ALFABE[idx];
-  _jumpToLetter(harf);
-  _harfOverlayGoster(harf);
+  _jumpToLetter(TR_ALFABE[idx]);
+  _harfOverlayGoster(TR_ALFABE[idx]);
 }
 
 function _azTouchEnd() {
   clearTimeout(_azOverlayTimer);
   _azOverlayTimer = setTimeout(() => {
-    const overlay = document.getElementById('azOverlay');
-    if (overlay) overlay.style.display = 'none';
+    const ov = document.getElementById('azOverlay');
+    if (ov) ov.style.display = 'none';
   }, 600);
 }
 
 function _jumpToLetter(harf) {
   const cards = document.querySelectorAll('#list [data-kitap-adi]');
   for (const card of cards) {
-    const adi = (card.dataset.kitapAdi || '').toLocaleUpperCase('tr');
-    if (adi.startsWith(harf)) {
-      const rect      = card.getBoundingClientRect();
-      const scrollTop = window.pageYOffset + rect.top - 120;
+    if ((card.dataset.kitapAdi || '').toLocaleUpperCase('tr').startsWith(harf)) {
+      const scrollTop = window.pageYOffset + card.getBoundingClientRect().top - 120;
       window.scrollTo({ top: Math.max(0, scrollTop), behavior: 'smooth' });
       return;
     }
@@ -248,24 +255,21 @@ function _jumpToLetter(harf) {
 }
 
 function _harfOverlayGoster(harf) {
-  const overlay = document.getElementById('azOverlay');
-  if (!overlay) return;
-  overlay.textContent   = harf;
-  overlay.style.display = 'flex';
+  const ov = document.getElementById('azOverlay');
+  if (!ov) return;
+  ov.textContent   = harf;
+  ov.style.display = 'flex';
   clearTimeout(_azOverlayTimer);
-  _azOverlayTimer = setTimeout(() => {
-    overlay.style.display = 'none';
-  }, 800);
+  _azOverlayTimer = setTimeout(() => { ov.style.display = 'none'; }, 800);
 }
 
 // ── Yükleme ───────────────────────────────────────────────────────────────
 async function loadBooks() {
   listeMesajTemizle();
   try {
-    books = await tumKitaplariGetir();
-    // DEBUG: Konsola yazdır — tarayıcı konsolunda kontrol et
-    const dbg = _isbnSayimHesapla(books);
-    console.log('[liste] books:', books.length, '| isbnSayim:', JSON.stringify(dbg));
+    books   = await tumKitaplariGetir();
+    gruplar = _grupla(books);
+    console.log('[liste] books:', books.length, '| gruplar:', gruplar.length);
     renderList();
   } catch (err) {
     listeMesaj('Liste hatası: ' + err.message, 'error');
@@ -278,112 +282,63 @@ function renderList() {
   const list = document.getElementById('list');
   if (!list) return;
 
-  let filtered = books.filter(book => {
+  // 1. Filtre: durum ve arama
+  let filtered = gruplar.filter(g => {
+    const durumOk =
+      (durumFiltre['RAFTA']   && g.rafta   > 0) ||
+      (durumFiltre['ÖDÜNÇTE'] && g.oduncte > 0);
+    if (!durumOk) return false;
     if (!q) return true;
     return (
-      (book.kitapAdi || '').toLocaleLowerCase('tr').includes(q) ||
-      (book.yazar    || '').toLocaleLowerCase('tr').includes(q) ||
-      (book.yayinevi || '').toLocaleLowerCase('tr').includes(q)
+      (g.kitapAdi || '').toLocaleLowerCase('tr').includes(q) ||
+      (g.yazar    || '').toLocaleLowerCase('tr').includes(q) ||
+      (g.yayinevi || '').toLocaleLowerCase('tr').includes(q) ||
+      (g.isbn     || '').includes(q)
     );
   });
 
-  filtered = filtered.filter(book => {
-    const d = String(book.durum || 'RAFTA').toUpperCase();
-    if (d === 'ÖDÜNÇTE') return durumFiltre['ÖDÜNÇTE'];
-    return durumFiltre['RAFTA'];
-  });
-
+  // 2. Sıralama: kitap adına göre
   filtered = [...filtered].sort((a, b) =>
-    (a.kitapAdi || '').toLocaleLowerCase('tr').localeCompare(
-      (b.kitapAdi || '').toLocaleLowerCase('tr'), 'tr'
-    )
+    (a.kitapAdi || '').toLocaleLowerCase('tr')
+      .localeCompare((b.kitapAdi || '').toLocaleLowerCase('tr'), 'tr')
   );
+
+  // 3. Referans güncelle (onclick için)
+  _dispGrup = filtered;
 
   if (!filtered.length) {
     list.innerHTML = '<div class="empty">Kayıtlı kitap bulunamadı</div>';
     return;
   }
 
-  // ISBN sayımı — _normIsbn ile, tüm books üzerinden (filtresiz)
-  const isbnSayim = _isbnSayimHesapla(books);
-
-  list.innerHTML = filtered.map(book => {
-    const durum = String(book.durum || 'RAFTA').toUpperCase();
-
-    let statusClass = 'rafta';
-    if (durum === 'ÖDÜNÇTE') statusClass = 'oduncte';
-    if (durum === 'KAYIP')   statusClass = 'kayip';
-
-    const loanButton = durum === 'RAFTA'
-      ? `<button class="btn btnLoan" onclick="event.stopPropagation();loanBook(${Number(book.id)})">Ödünç Ver</button>`
-      : `<button class="btn btnLoan btnDisabled" disabled>Ödünç Verilemez</button>`;
-
-    const returnButton = durum === 'ÖDÜNÇTE'
-      ? `<button class="btn btnReturn" onclick="event.stopPropagation();returnBook(${Number(book.id)})">İade Al</button>`
-      : `<button class="btn btnReturn btnDisabled" disabled>İade Beklemiyor</button>`;
-
-    // v72: ISBN bazlı durum dağılımı hesapla
-    const isbnKey  = _normIsbn(book.isbn);
-    const sayimObj = isbnKey ? (isbnSayim[isbnKey] || null) : null;
-    const toplam   = sayimObj ? sayimObj.toplam : 0;
-
-    // Bireysel kitap rengi (ISBN yok veya fallback)
-    const bireyselRenk = durum === 'ÖDÜNÇTE'
-      ? { bg: '#fee2e2', fg: '#991b1b' }
-      : durum === 'KAYIP'
-      ? { bg: '#fef3c7', fg: '#92400e' }
-      : { bg: '#d1fae5', fg: '#065f46' };
-
-    // Badge: durum dağılımı ve rengi hesapla
-    let badgeBg = bireyselRenk.bg, badgeFg = bireyselRenk.fg;
-    let badgeTekst = guvenliYazi(durum);
-    if (sayimObj) {
-      const p = [];
-      if (sayimObj.rafta   > 0) p.push(`${sayimObj.rafta} Rafta`);
-      if (sayimObj.oduncte > 0) p.push(`${sayimObj.oduncte} Ödünçte`);
-      if (sayimObj.kayip   > 0) p.push(`${sayimObj.kayip} Kayıp`);
-      badgeTekst = p.join(' &bull; ');
-      if (sayimObj.oduncte > 0 && sayimObj.rafta === 0 && sayimObj.kayip === 0) {
-        badgeBg = '#fee2e2'; badgeFg = '#991b1b'; // tümü ödünçte
-      } else if (sayimObj.oduncte > 0 || sayimObj.kayip > 0) {
-        badgeBg = '#fef3c7'; badgeFg = '#92400e'; // karışık
-      } else {
-        badgeBg = '#d1fae5'; badgeFg = '#065f46'; // tümü rafta
-      }
-    }
-
-    const adetDurumBadge = sayimObj
-      ? `<span style="
-            display:inline-flex;align-items:center;gap:4px;margin-bottom:6px;
-            background:${badgeBg};color:${badgeFg};
-            padding:3px 10px;border-radius:999px;
-            font-size:12px;font-weight:700;
-          ">📚 ${toplam} adet &bull; ${badgeTekst}</span>`
-      : `<span style="
-            display:inline-flex;align-items:center;gap:4px;margin-bottom:6px;
-            background:${bireyselRenk.bg};color:${bireyselRenk.fg};
-            padding:3px 10px;border-radius:999px;
-            font-size:12px;font-weight:700;
-          ">${guvenliYazi(durum)}</span>`;
+  list.innerHTML = filtered.map((g, i) => {
+    const badge = _durumBadge(g);
+    const loanBtn = g.rafta > 0
+      ? `<button class="btn btnLoan"     onclick="event.stopPropagation();loanBook(${i})">📤 Ödünç Ver</button>`
+      : `<button class="btn btnDisabled" disabled>Ödünç Verilemez</button>`;
+    const retBtn  = g.oduncte > 0
+      ? `<button class="btn btnReturn"   onclick="event.stopPropagation();returnBook(${i})">📥 İade Al</button>`
+      : `<button class="btn btnDisabled" disabled>İade Beklemiyor</button>`;
 
     return `
-      <div class="card" data-kitap-adi="${safeAttr(book.kitapAdi || '')}">
-        <div class="cardTop" onclick="detayAc(${Number(book.id)})" style="cursor:pointer">
-          <div class="coverWrap">
-            ${kapakHtml(book)}
-          </div>
+      <div class="card" data-kitap-adi="${safeAttr(g.kitapAdi || '')}">
+        <div class="cardTop" onclick="detayAc(${i})" style="cursor:pointer">
+          <div class="coverWrap">${_kapakHtmlGrup(g)}</div>
           <div class="cardBody">
-            <div class="codeBadge">${guvenliYazi(book.kitapKodu || '-')}</div>
-            ${adetDurumBadge}
-            <div class="title">${guvenliYazi(book.kitapAdi || '-')}</div>
-            <div class="line"><strong>Yazar:</strong> ${guvenliYazi(book.yazar || '-')}</div>
-            <div class="line"><strong>ISBN:</strong> ${guvenliYazi(book.isbn || '-')}</div>
-            <div class="line"><strong>Yayınevi:</strong> ${guvenliYazi(book.yayinevi || '-')}</div>
+            <span style="display:inline-flex;align-items:center;gap:4px;margin-bottom:6px;
+                         background:${badge.bg};color:${badge.fg};
+                         padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;">
+              📚 ${g.toplam} adet &bull; ${guvenliYazi(badge.tekst)}
+            </span>
+            <div class="title">${guvenliYazi(g.kitapAdi || '-')}</div>
+            <div class="line"><strong>Yazar:</strong> ${guvenliYazi(g.yazar || '-')}</div>
+            ${g.isbn     ? `<div class="line"><strong>ISBN:</strong> ${guvenliYazi(g.isbn)}</div>` : ''}
+            ${g.yayinevi ? `<div class="line"><strong>Yayınevi:</strong> ${guvenliYazi(g.yayinevi)}</div>` : ''}
           </div>
         </div>
         <div class="actions">
-          ${loanButton}
-          ${returnButton}
+          ${loanBtn}
+          ${retBtn}
         </div>
       </div>
     `;
@@ -391,111 +346,86 @@ function renderList() {
 }
 
 // ── Detay Overlay ─────────────────────────────────────────────────────────
-function detayAc(id) {
-  const book = books.find(b => Number(b.id) === Number(id));
-  if (!book) return;
+function detayAc(grupIdx) {
+  const g = _dispGrup[grupIdx];
+  if (!g) return;
+  _detayGrupIdx = grupIdx;
 
-  const durum      = String(book.durum || 'RAFTA').toUpperCase();
-  const localKapak = localStorage.getItem('kapak_' + book.id);
-
-  const kapakSrc = localKapak
-    ? safeAttr(localKapak)
-    : book.isbn
-      ? safeAttr('https://covers.openlibrary.org/b/isbn/' + encodeURIComponent(_normIsbn(book.isbn)) + '-M.jpg')
+  const badge  = _durumBadge(g);
+  const ilkId  = g.kopya[0]?.id;
+  const local  = ilkId ? localStorage.getItem('kapak_' + ilkId) : null;
+  const kapakSrc = local
+    ? safeAttr(local)
+    : g.isbn
+      ? safeAttr('https://covers.openlibrary.org/b/isbn/' + encodeURIComponent(_normIsbn(g.isbn)) + '-M.jpg')
       : '';
 
-  const statusClass = durum === 'ÖDÜNÇTE' ? 'oduncte' : durum === 'KAYIP' ? 'kayip' : 'rafta';
+  // Autocomplete veri
+  const yazarOner = [...new Set(books.map(b => b.yazar   ).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'tr'));
+  const yayiOner  = [...new Set(books.map(b => b.yayinevi).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'tr'));
 
-  const loanBtn   = durum === 'RAFTA'
-    ? `<button onclick="detayKapat();loanBook(${Number(book.id)})" style="${_detayBtnStyle('#0b57d0')}">📤 Ödünç Ver</button>`
+  // Kopyalar listesi
+  const kopyaHtml = g.kopya.map(k => {
+    const d = String(k.durum || 'RAFTA').toUpperCase();
+    const dClass  = d === 'ÖDÜNÇTE' ? 'oduncte' : d === 'KAYIP' ? 'kayip' : 'rafta';
+    const dMetin  = d === 'ÖDÜNÇTE' ? 'Ödünçte' : d === 'KAYIP' ? 'Kayıp' : 'Rafta';
+    let ekBilgi = '';
+    if (d === 'ÖDÜNÇTE' && k.oduncAlan) {
+      const tarih = k.oduncTarihi
+        ? new Date(k.oduncTarihi).toLocaleDateString('tr-TR', { day:'numeric', month:'numeric', year:'numeric' })
+        : '';
+      ekBilgi = guvenliYazi(' — ' + k.oduncAlan + (tarih ? ' — ' + tarih : ''));
+    }
+    return `
+      <div style="display:flex;align-items:center;gap:8px;padding:9px 12px;
+                  border-radius:10px;background:#f9fafb;margin-bottom:6px;">
+        <span style="font-family:monospace;font-size:13px;font-weight:700;
+                     color:#374151;flex-shrink:0;">${guvenliYazi(k.kitapKodu || '-')}</span>
+        <span class="status ${dClass}" style="font-size:11px;padding:3px 8px;flex-shrink:0;">${dMetin}</span>
+        <span style="font-size:13px;color:#6b7280;flex:1;min-width:0;word-break:break-word;">${ekBilgi}</span>
+      </div>`;
+  }).join('');
+
+  // Eylem butonları (grup bazlı — _detayLoan/_detayReturn kullanır)
+  const loanBtn   = g.rafta > 0
+    ? `<button onclick="_detayLoan()" style="${_detayBtnStyle('#0b57d0')}">📤 Ödünç Ver</button>`
     : '';
-  const returnBtn = durum === 'ÖDÜNÇTE'
-    ? `<button onclick="returnBook(${Number(book.id)});detayKapat()" style="${_detayBtnStyle('#047857')}">📥 İade Al</button>`
-    : '';
-
-  // Adet + durum dağılımı — v72
-  const isbnKey    = _normIsbn(book.isbn);
-  const isbnSayim  = _isbnSayimHesapla(books);
-  const sayimObj   = isbnKey ? (isbnSayim[isbnKey] || null) : null;
-  const toplam     = sayimObj ? sayimObj.toplam : 0;
-
-  let detayAdetTekst = '';
-  if (sayimObj) {
-    const p = [];
-    if (sayimObj.rafta   > 0) p.push(`${sayimObj.rafta} Rafta`);
-    if (sayimObj.oduncte > 0) p.push(`${sayimObj.oduncte} Ödünçte`);
-    if (sayimObj.kayip   > 0) p.push(`${sayimObj.kayip} Kayıp`);
-    detayAdetTekst = `📚 ${toplam} adet • ${p.join(' • ')}`;
-  }
-
-  const adetSatiri = sayimObj
-    ? `<div style="
-          display:inline-flex;align-items:center;gap:5px;
-          background:#dbeafe;color:#1d4ed8;
-          padding:4px 10px;border-radius:999px;
-          font-size:12px;font-weight:700;margin-bottom:8px;
-        ">${guvenliYazi(detayAdetTekst)}</div>`
-    : isbnKey
-    ? `<div style="
-          display:inline-flex;align-items:center;gap:5px;
-          background:#dbeafe;color:#1d4ed8;
-          padding:4px 10px;border-radius:999px;
-          font-size:12px;font-weight:700;margin-bottom:8px;
-        ">📚 1 adet</div>`
-    : `<div style="
-          display:inline-flex;align-items:center;gap:5px;
-          background:#f3f4f6;color:#9ca3af;
-          padding:4px 10px;border-radius:999px;
-          font-size:12px;font-weight:600;margin-bottom:8px;
-        ">📌 ISBN yok</div>`;
-
-  const isbnSatiri = book.isbn
-    ? `<div style="font-size:13px;color:#6b7280;margin-bottom:6px;font-family:monospace;">ISBN: ${guvenliYazi(book.isbn)}</div>`
+  const returnBtn = g.oduncte > 0
+    ? `<button onclick="_detayReturn()" style="${_detayBtnStyle('#047857')}">📥 İade Al</button>`
     : '';
 
-  // Autocomplete için veri (duplicate filter)
-  const yazarOneriler    = [...new Set(books.map(b => b.yazar   ).filter(Boolean))].sort((a,b) => a.localeCompare(b,'tr'));
-  const yayiOneriler     = [...new Set(books.map(b => b.yayinevi).filter(Boolean))].sort((a,b) => a.localeCompare(b,'tr'));
-
-  const old = document.getElementById('detayOverlay');
-  if (old) old.remove();
+  // Eski overlay varsa kaldır
+  document.getElementById('detayOverlay')?.remove();
 
   const overlay = document.createElement('div');
   overlay.id = 'detayOverlay';
-  overlay.style.cssText = 'position:fixed;inset:0;z-index:2000;background:rgba(0,0,0,0.55);display:flex;align-items:flex-end;justify-content:center;';
-  overlay.addEventListener('click', function(e) {
-    if (e.target === overlay) detayKapat();
-  });
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:2000;background:rgba(0,0,0,0.55);' +
+    'display:flex;align-items:flex-end;justify-content:center;';
+  overlay.addEventListener('click', e => { if (e.target === overlay) detayKapat(); });
 
   overlay.innerHTML = `
     <div id="detayPanel" style="
       background:#fff;border-radius:22px 22px 0 0;
       width:100%;max-width:700px;max-height:92vh;
       display:flex;flex-direction:column;
-      box-shadow:0 -8px 32px rgba(0,0,0,0.18);
-    ">
+      box-shadow:0 -8px 32px rgba(0,0,0,0.18);">
 
-      <!-- ── Header (sticky, scroll edilemez) ── -->
-      <div style="
-        flex-shrink:0;
-        background:#fff;border-radius:22px 22px 0 0;
-        display:flex;align-items:center;justify-content:space-between;
-        padding:12px 16px 10px;
-        border-bottom:1px solid #f3f4f6;
-      ">
+      <!-- Header -->
+      <div style="flex-shrink:0;background:#fff;border-radius:22px 22px 0 0;
+                  display:flex;align-items:center;justify-content:space-between;
+                  padding:12px 16px 10px;border-bottom:1px solid #f3f4f6;">
         <div style="display:flex;align-items:center;gap:10px">
           <div style="width:36px;height:4px;border-radius:2px;background:#d1d5db"></div>
           <span style="font-size:15px;font-weight:700;color:#111">Kitap Detayı</span>
         </div>
         <button onclick="detayKapat()" style="
           width:36px;height:36px;border:none;border-radius:50%;
-          background:#f3f4f6;color:#374151;font-size:18px;
-          cursor:pointer;display:flex;align-items:center;justify-content:center;
-          -webkit-tap-highlight-color:transparent;
-        ">✕</button>
+          background:#f3f4f6;color:#374151;font-size:18px;cursor:pointer;
+          display:flex;align-items:center;justify-content:center;
+          -webkit-tap-highlight-color:transparent;">✕</button>
       </div>
 
-      <!-- ── Scrollable içerik ── -->
+      <!-- Scrollable içerik -->
       <div style="flex:1;min-height:0;overflow-y:auto;padding:0 0 4px 0;">
 
         <!-- Kapak + üst bilgi -->
@@ -505,77 +435,96 @@ function detayAc(id) {
                title="Kapak fotoğrafı ekle">
             ${kapakSrc
               ? `<img id="detayKapakImg" src="${kapakSrc}" alt="Kapak"
-                  style="width:80px;height:116px;object-fit:cover;border-radius:12px;border:1px solid #e5e7eb;display:block;"
-                  referrerpolicy="no-referrer"
-                  onerror="this.outerHTML='<div id=&quot;detayKapakImg&quot; style=&quot;width:80px;height:116px;border-radius:12px;border:1px solid #e5e7eb;background:#f3f4f6;display:flex;align-items:center;justify-content:center;font-size:28px;&quot;>📘</div>'">`
+                   style="width:80px;height:116px;object-fit:cover;border-radius:12px;border:1px solid #e5e7eb;display:block;"
+                   referrerpolicy="no-referrer"
+                   onerror="this.outerHTML='<div id=&quot;detayKapakImg&quot; style=&quot;width:80px;height:116px;border-radius:12px;border:1px solid #e5e7eb;background:#f3f4f6;display:flex;align-items:center;justify-content:center;font-size:28px;&quot;>📘</div>'">`
               : `<div id="detayKapakImg" style="width:80px;height:116px;border-radius:12px;border:1px solid #e5e7eb;background:#f3f4f6;display:flex;align-items:center;justify-content:center;font-size:28px;">📘</div>`}
-            <div style="position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,0.55);border-radius:6px;padding:2px 5px;font-size:11px;color:#fff">📷</div>
+            <div style="position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,0.55);
+                        border-radius:6px;padding:2px 5px;font-size:11px;color:#fff">📷</div>
             <input id="detayKapakInput" type="file" accept="image/*" style="display:none"
-              onchange="detayKapakSecildi(${Number(book.id)}, this)">
+              onchange="detayKapakSecildi(${Number(ilkId)}, this)">
           </div>
 
           <div style="flex:1;min-width:0">
-            <div style="font-size:12px;color:#9ca3af;font-weight:600;margin-bottom:4px">${guvenliYazi(book.kitapKodu || '')}</div>
-            ${adetSatiri}
-            <div style="font-size:20px;font-weight:bold;line-height:1.3;margin-bottom:6px;word-break:break-word">${guvenliYazi(book.kitapAdi || '-')}</div>
-            <div style="font-size:14px;color:#555;margin-bottom:4px">${guvenliYazi(book.yazar || '-')}</div>
-            ${isbnSatiri}
-            <span class="status ${statusClass}" style="font-size:12px;padding:5px 10px">${guvenliYazi(durum)}</span>
+            <span style="display:inline-flex;align-items:center;gap:4px;margin-bottom:6px;
+                         background:${badge.bg};color:${badge.fg};
+                         padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;">
+              📚 ${g.toplam} adet &bull; ${guvenliYazi(badge.tekst)}
+            </span>
+            <div style="font-size:20px;font-weight:bold;line-height:1.3;margin-bottom:6px;word-break:break-word">
+              ${guvenliYazi(g.kitapAdi || '-')}
+            </div>
+            <div style="font-size:14px;color:#555;margin-bottom:4px">${guvenliYazi(g.yazar || '-')}</div>
+            ${g.isbn     ? `<div style="font-size:13px;color:#6b7280;margin-bottom:4px;font-family:monospace;">ISBN: ${guvenliYazi(g.isbn)}</div>` : ''}
+            ${g.yayinevi ? `<div style="font-size:13px;color:#6b7280;margin-bottom:4px;">${guvenliYazi(g.yayinevi)}</div>` : ''}
           </div>
         </div>
 
         <!-- Eylem butonları -->
         ${(loanBtn || returnBtn)
-          ? `<div style="display:grid;grid-template-columns:${loanBtn && returnBtn ? '1fr 1fr' : '1fr'};gap:8px;padding:0 18px 14px">${loanBtn}${returnBtn}</div>`
+          ? `<div style="display:grid;grid-template-columns:${loanBtn && returnBtn ? '1fr 1fr' : '1fr'};gap:8px;padding:0 18px 14px">
+               ${loanBtn}${returnBtn}
+             </div>`
           : ''}
 
-        <!-- Düzenleme formu -->
+        <!-- Kopyalar listesi -->
         <div style="padding:0 18px 18px">
-          <div style="font-size:13px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px">Bilgileri Düzenle</div>
+          <div style="font-size:13px;font-weight:700;color:#6b7280;
+                      text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">
+            Kopyalar (${g.toplam})
+          </div>
+          ${kopyaHtml}
+        </div>
+
+        <!-- Düzenleme formu -->
+        <div style="padding:0 18px 18px;border-top:1px solid #f3f4f6">
+          <div style="font-size:13px;font-weight:700;color:#6b7280;
+                      text-transform:uppercase;letter-spacing:0.5px;margin:14px 0 12px">
+            Bilgileri Düzenle
+          </div>
 
           <label style="${_detayLabelStyle()}">Kitap Adı</label>
-          <input id="detayEditAdi" type="text" value="${safeAttr(book.kitapAdi || '')}" style="${_detayInputStyle()}" autocomplete="off">
+          <input id="detayEditAdi" type="text" value="${safeAttr(g.kitapAdi || '')}"
+                 style="${_detayInputStyle()}" autocomplete="off">
 
           <label style="${_detayLabelStyle()}">Yazar</label>
           <div style="position:relative">
-            <input id="detayEditYazar" type="text" value="${safeAttr(book.yazar || '')}" style="${_detayInputStyle()}" autocomplete="off">
+            <input id="detayEditYazar" type="text" value="${safeAttr(g.yazar || '')}"
+                   style="${_detayInputStyle()}" autocomplete="off">
           </div>
 
           <label style="${_detayLabelStyle()}">Yayınevi</label>
           <div style="position:relative">
-            <input id="detayEditYayinevi" type="text" value="${safeAttr(book.yayinevi || '')}" style="${_detayInputStyle()}" autocomplete="off">
+            <input id="detayEditYayinevi" type="text" value="${safeAttr(g.yayinevi || '')}"
+                   style="${_detayInputStyle()}" autocomplete="off">
           </div>
 
           <label style="${_detayLabelStyle()}">Yayın Yılı</label>
-          <input id="detayEditYil" type="text" value="${safeAttr(book.yayinYili || '')}" style="${_detayInputStyle()}" autocomplete="off">
+          <input id="detayEditYil" type="text" value="${safeAttr(g.yayinYili || '')}"
+                 style="${_detayInputStyle()}" autocomplete="off">
 
-          <label style="${_detayLabelStyle()}">Not</label>
-          <textarea id="detayEditNot" style="${_detayInputStyle()}min-height:80px;resize:vertical;">${guvenliYazi(book.not || '')}</textarea>
+          <div id="detayMesaj" style="display:none;margin-top:10px;padding:10px 14px;
+                                       border-radius:10px;font-size:15px;font-weight:bold"></div>
 
-          <div id="detayMesaj" style="display:none;margin-top:10px;padding:10px 14px;border-radius:10px;font-size:15px;font-weight:bold"></div>
-
-          <button onclick="detayKaydet(${Number(book.id)})" style="${_detayBtnStyle('#047857')}margin-top:14px;">💾 Kaydet</button>
+          <button onclick="detayKaydet()" style="${_detayBtnStyle('#047857')}margin-top:14px;">
+            💾 Kaydet
+          </button>
         </div>
 
       </div><!-- /scrollable -->
 
-      <!-- ── Footer: Kapat butonu — sticky, her zaman görünür ── -->
-      <div style="
-        flex-shrink:0;
-        padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px));
-        border-top:1px solid #f3f4f6;
-        background:#fff;
-      ">
+      <!-- Footer: Kapat -->
+      <div style="flex-shrink:0;padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px));
+                  border-top:1px solid #f3f4f6;background:#fff;">
         <button onclick="detayKapat()" style="
           display:block;width:100%;padding:15px;
           font-size:17px;font-weight:700;
           border:none;border-radius:14px;
           background:#1f2937;color:#fff;cursor:pointer;
-          -webkit-tap-highlight-color:transparent;
-          letter-spacing:0.3px;
-        ">✕ Kapat</button>
+          -webkit-tap-highlight-color:transparent;letter-spacing:0.3px;">
+          ✕ Kapat
+        </button>
       </div>
-
     </div>
   `;
 
@@ -589,9 +538,23 @@ function detayAc(id) {
     requestAnimationFrame(() => { panel.style.transform = 'translateY(0)'; });
   }
 
-  // Autocomplete kurulumu (DOM'a eklendikten sonra)
-  _autocompleteSetup(document.getElementById('detayEditYazar'),    yazarOneriler);
-  _autocompleteSetup(document.getElementById('detayEditYayinevi'), yayiOneriler);
+  // Autocomplete
+  _autocompleteSetup(document.getElementById('detayEditYazar'),    yazarOner);
+  _autocompleteSetup(document.getElementById('detayEditYayinevi'), yayiOner);
+}
+
+// Detay içi loan/return — _detayGrupIdx üzerinden çalışır
+function _detayLoan() {
+  if (_detayGrupIdx < 0) return;
+  const idx = _detayGrupIdx;
+  detayKapat();
+  loanBook(idx);
+}
+function _detayReturn() {
+  if (_detayGrupIdx < 0) return;
+  const idx = _detayGrupIdx;
+  detayKapat();
+  returnBook(idx);
 }
 
 function detayKapat() {
@@ -607,67 +570,65 @@ function detayKapat() {
   }
 }
 
-async function detayKaydet(id) {
-  const adiEl   = document.getElementById('detayEditAdi');
-  const yazarEl = document.getElementById('detayEditYazar');
-  const yayEl   = document.getElementById('detayEditYayinevi');
-  const yilEl   = document.getElementById('detayEditYil');
-  const notEl   = document.getElementById('detayEditNot');
+async function detayKaydet() {
+  const g = _dispGrup[_detayGrupIdx];
+  if (!g) return;
+
   const mesajEl = document.getElementById('detayMesaj');
-
-  const _bh = typeof basHarfBuyut === 'function' ? basHarfBuyut : function(s) { return s; };
-  const adi   = _bh((adiEl?.value   || '').trim());
-  const yazar = _bh((yazarEl?.value || '').trim());
-
-  if (!adi || !yazar) {
-    if (mesajEl) {
-      mesajEl.style.display    = 'block';
-      mesajEl.style.background = '#fee2e2';
-      mesajEl.style.color      = '#991b1b';
-      mesajEl.textContent      = 'Kitap adı ve yazar zorunlu';
-    }
-    return;
+  function _detayHata(msg) {
+    if (!mesajEl) return;
+    mesajEl.style.display    = 'block';
+    mesajEl.style.background = '#fee2e2';
+    mesajEl.style.color      = '#991b1b';
+    mesajEl.textContent      = msg;
   }
 
-  const payload = {
-    action:    'bookUpdate',
-    id,
-    kitapAdi:  adi,
-    yazar,
-    yayinevi:  (yayEl?.value || '').trim(),
-    yayinYili: (yilEl?.value || '').trim(),
-    notText:   (notEl?.value || '').trim()
-  };
+  const _bh = typeof basHarfBuyut === 'function' ? basHarfBuyut : s => s;
+  const adi      = _bh((document.getElementById('detayEditAdi')?.value      || '').trim());
+  const yazar    = _bh((document.getElementById('detayEditYazar')?.value    || '').trim());
+  const yayinevi  = (document.getElementById('detayEditYayinevi')?.value || '').trim();
+  const yayinYili = (document.getElementById('detayEditYil')?.value      || '').trim();
 
+  if (!adi || !yazar) { _detayHata('Kitap adı ve yazar zorunlu'); return; }
+
+  // Gruptaki tüm kopyaları paralel güncelle
   try {
-    const result = await apiPost(payload);
-    if (!result.ok) {
-      if (mesajEl) {
-        mesajEl.style.display    = 'block';
-        mesajEl.style.background = '#fee2e2';
-        mesajEl.style.color      = '#991b1b';
-        mesajEl.textContent      = result.error || 'Kayıt hatası';
-      }
-      return;
-    }
-    const book = books.find(b => Number(b.id) === Number(id));
-    if (book) {
-      book.kitapAdi  = adi;
-      book.yazar     = yazar;
-      book.yayinevi  = (yayEl?.value  || '').trim();
-      book.yayinYili = (yilEl?.value  || '').trim();
-      book.not       = (notEl?.value  || '').trim();
-    }
+    const results = await Promise.all(
+      g.kopya.map(k => apiPost({
+        action: 'bookUpdate',
+        id:         k.id,
+        kitapAdi:   adi,
+        yazar,
+        yayinevi,
+        yayinYili,
+        notText:    k.not || ''
+      }))
+    );
+    const hata = results.find(r => !r.ok);
+    if (hata) { _detayHata(hata.error || 'Kayıt hatası'); return; }
+
+    // Yerel state güncelle
+    g.kitapAdi  = adi;
+    g.yazar     = yazar;
+    g.yayinevi  = yayinevi;
+    g.yayinYili = yayinYili;
+    g.kopya.forEach(k => {
+      k.kitapAdi  = adi;
+      k.yazar     = yazar;
+      k.yayinevi  = yayinevi;
+      k.yayinYili = yayinYili;
+    });
+    // Ana books array da güncelle
+    g.kopya.forEach(k => {
+      const b = books.find(b => Number(b.id) === Number(k.id));
+      if (b) { b.kitapAdi = adi; b.yazar = yazar; b.yayinevi = yayinevi; b.yayinYili = yayinYili; }
+    });
+
     detayKapat();
     renderList();
-    listeMesaj(result.message || 'Kitap güncellendi', 'success');
+    listeMesaj(results[0]?.message || 'Kitap güncellendi', 'success');
   } catch (err) {
-    if (mesajEl) {
-      mesajEl.style.display    = 'block';
-      mesajEl.style.background = '#fee2e2';
-      mesajEl.style.color      = '#991b1b';
-      mesajEl.textContent      = 'Kayıt hatası: ' + err.message;
-    }
+    _detayHata('Kayıt hatası: ' + err.message);
   }
 }
 
@@ -693,145 +654,74 @@ function detayKapakSecildi(bookId, inputEl) {
   reader.readAsDataURL(file);
 }
 
-// ── Stil yardımcıları ─────────────────────────────────────────────────────
-function _detayBtnStyle(bg) {
-  return `display:block;width:100%;padding:14px;font-size:16px;font-weight:bold;
-    border:none;border-radius:14px;background:${bg};color:#fff;cursor:pointer;`;
-}
-function _detayLabelStyle() {
-  return 'display:block;font-size:14px;font-weight:600;color:#374151;margin:12px 0 5px;';
-}
-function _detayInputStyle() {
-  return 'width:100%;box-sizing:border-box;padding:12px 14px;font-size:15px;' +
-    'border:1px solid #d1d5db;border-radius:12px;background:#fff;outline:none;display:block;';
-}
-
 // ── Ödünç Modal ───────────────────────────────────────────────────────────
 function _oduncModalGoster(defaultGun) {
   return new Promise((resolve) => {
-    const old = document.getElementById('oduncOverlay');
-    if (old) old.remove();
-
-    // Geçmiş ödünç alanlar — autocomplete için
-    const oduncAlanlar = [...new Set(books.map(b => b.oduncAlan).filter(Boolean))].sort((a,b) => a.localeCompare(b,'tr'));
+    document.getElementById('oduncOverlay')?.remove();
+    const oduncAlanlar = [...new Set(books.map(b => b.oduncAlan).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'tr'));
 
     const overlay = document.createElement('div');
     overlay.id = 'oduncOverlay';
-    overlay.style.cssText = [
-      'position:fixed;inset:0;z-index:3000;',
-      'background:rgba(0,0,0,0.55);',
-      'display:flex;align-items:flex-end;justify-content:center;'
-    ].join('');
-
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:3000;background:rgba(0,0,0,0.55);' +
+      'display:flex;align-items:flex-end;justify-content:center;';
     overlay.innerHTML = `
       <div id="oduncPanel" style="
         background:#fff;border-radius:22px 22px 0 0;
         width:100%;max-width:500px;
         display:flex;flex-direction:column;
-        box-shadow:0 -8px 32px rgba(0,0,0,0.18);
-      ">
-        <!-- Header -->
-        <div style="
-          flex-shrink:0;
-          padding:14px 16px 12px;
-          border-bottom:1px solid #f3f4f6;
-          display:flex;align-items:center;gap:10px;
-        ">
+        box-shadow:0 -8px 32px rgba(0,0,0,0.18);">
+        <div style="flex-shrink:0;padding:14px 16px 12px;border-bottom:1px solid #f3f4f6;
+                    display:flex;align-items:center;gap:10px;">
           <div style="width:36px;height:4px;border-radius:2px;background:#d1d5db"></div>
           <span style="font-size:16px;font-weight:700;color:#111">📤 Ödünç Ver</span>
         </div>
-
-        <!-- Form -->
         <div style="padding:16px 20px 8px;overflow-y:auto;">
-          <label style="display:block;font-size:14px;font-weight:600;color:#374151;margin-bottom:6px">
-            Ödünç Alan
-          </label>
-          <input
-            id="oduncAlanInput"
-            type="text"
-            placeholder="Kişi adı..."
-            autocomplete="off"
-            autocapitalize="words"
-            style="
-              width:100%;box-sizing:border-box;padding:13px 14px;font-size:16px;
-              border:1.5px solid #d1d5db;border-radius:12px;background:#fff;outline:none;
-              display:block;margin-bottom:16px;
-            "
-          >
-
-          <label style="display:block;font-size:14px;font-weight:600;color:#374151;margin-bottom:6px">
-            Kaç Gün Ödünç?
-          </label>
-          <input
-            id="oduncGunInput"
-            type="number"
-            min="1"
-            max="365"
-            value="${Number(defaultGun) || 15}"
-            style="
-              width:100%;box-sizing:border-box;padding:13px 14px;font-size:16px;
-              border:1.5px solid #d1d5db;border-radius:12px;background:#fff;outline:none;
-              display:block;margin-bottom:6px;
-            "
-          >
+          <label style="display:block;font-size:14px;font-weight:600;color:#374151;margin-bottom:6px">Ödünç Alan</label>
+          <input id="oduncAlanInput" type="text" placeholder="Kişi adı..." autocomplete="off" autocapitalize="words"
+            style="width:100%;box-sizing:border-box;padding:13px 14px;font-size:16px;
+                   border:1.5px solid #d1d5db;border-radius:12px;background:#fff;outline:none;
+                   display:block;margin-bottom:16px;">
+          <label style="display:block;font-size:14px;font-weight:600;color:#374151;margin-bottom:6px">Kaç Gün Ödünç?</label>
+          <input id="oduncGunInput" type="number" min="1" max="365" value="${Number(defaultGun)||15}"
+            style="width:100%;box-sizing:border-box;padding:13px 14px;font-size:16px;
+                   border:1.5px solid #d1d5db;border-radius:12px;background:#fff;outline:none;
+                   display:block;margin-bottom:6px;">
           <div id="oduncIadeTarihGoster" style="font-size:13px;color:#6b7280;margin-bottom:12px;min-height:18px;"></div>
-
-          <div id="oduncMesaj" style="
-            display:none;padding:10px 14px;border-radius:10px;
-            font-size:14px;font-weight:bold;margin-bottom:10px;
-            background:#fee2e2;color:#991b1b;
-          "></div>
-
+          <div id="oduncMesaj" style="display:none;padding:10px 14px;border-radius:10px;
+                                       font-size:14px;font-weight:bold;margin-bottom:10px;
+                                       background:#fee2e2;color:#991b1b;"></div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:0">
-            <button id="oduncIptalBtn" style="
-              border:none;border-radius:12px;padding:15px;
-              font-size:15px;font-weight:bold;
-              background:#f3f4f6;color:#374151;cursor:pointer;
-              -webkit-tap-highlight-color:transparent;
-            ">İptal</button>
-            <button id="oduncOnayBtn" style="
-              border:none;border-radius:12px;padding:15px;
-              font-size:15px;font-weight:bold;
-              background:#0b57d0;color:#fff;cursor:pointer;
-              -webkit-tap-highlight-color:transparent;
-            ">Ödünç Ver</button>
+            <button id="oduncIptalBtn" style="border:none;border-radius:12px;padding:15px;
+              font-size:15px;font-weight:bold;background:#f3f4f6;color:#374151;cursor:pointer;
+              -webkit-tap-highlight-color:transparent;">İptal</button>
+            <button id="oduncOnayBtn" style="border:none;border-radius:12px;padding:15px;
+              font-size:15px;font-weight:bold;background:#0b57d0;color:#fff;cursor:pointer;
+              -webkit-tap-highlight-color:transparent;">Ödünç Ver</button>
           </div>
         </div>
-
-        <!-- Footer safe area -->
         <div style="flex-shrink:0;height:calc(env(safe-area-inset-bottom,0px) + 16px)"></div>
-      </div>
-    `;
-
+      </div>`;
     document.body.appendChild(overlay);
 
-    // Açılış animasyonu
     const panel = overlay.querySelector('#oduncPanel');
     panel.style.transform  = 'translateY(100%)';
     panel.style.transition = 'transform 0.25s ease';
     requestAnimationFrame(() => { panel.style.transform = 'translateY(0)'; });
 
-    // Autocomplete — geçmiş ödünç alanlar
     _autocompleteSetup(document.getElementById('oduncAlanInput'), oduncAlanlar);
-
-    // İlk odak
     setTimeout(() => document.getElementById('oduncAlanInput')?.focus(), 320);
 
-    // İade tarihi güncelle
-    function _guncelleIadeTarih() {
+    function _guncelleIade() {
       const gun = parseInt(document.getElementById('oduncGunInput')?.value, 10) || 0;
       const el  = document.getElementById('oduncIadeTarihGoster');
       if (!el) return;
       if (gun > 0) {
-        const d = new Date();
-        d.setDate(d.getDate() + gun);
-        el.textContent = `İade tarihi: ${d.toLocaleDateString('tr-TR', { day:'numeric', month:'long', year:'numeric' })}`;
-      } else {
-        el.textContent = '';
-      }
+        const d = new Date(); d.setDate(d.getDate() + gun);
+        el.textContent = 'İade tarihi: ' + d.toLocaleDateString('tr-TR', { day:'numeric', month:'long', year:'numeric' });
+      } else { el.textContent = ''; }
     }
-    _guncelleIadeTarih();
-    document.getElementById('oduncGunInput')?.addEventListener('input', _guncelleIadeTarih);
+    _guncelleIade();
+    document.getElementById('oduncGunInput')?.addEventListener('input', _guncelleIade);
 
     function _kapat(result) {
       _autocompleteTemizle();
@@ -841,39 +731,104 @@ function _oduncModalGoster(defaultGun) {
     }
 
     document.getElementById('oduncIptalBtn').addEventListener('click', () => _kapat(null));
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) _kapat(null); });
+    overlay.addEventListener('click', e => { if (e.target === overlay) _kapat(null); });
 
     function _onay() {
       const borrower = (document.getElementById('oduncAlanInput')?.value || '').trim();
       const gun      = parseInt(document.getElementById('oduncGunInput')?.value, 10);
       const mesajEl  = document.getElementById('oduncMesaj');
-
       if (!borrower) {
         if (mesajEl) { mesajEl.style.display = 'block'; mesajEl.textContent = 'Ödünç alan kişi adı zorunlu'; }
-        document.getElementById('oduncAlanInput')?.focus();
-        return;
+        document.getElementById('oduncAlanInput')?.focus(); return;
       }
       if (!gun || gun < 1 || gun > 365) {
         if (mesajEl) { mesajEl.style.display = 'block'; mesajEl.textContent = 'Gün sayısı 1–365 arasında olmalı'; }
-        document.getElementById('oduncGunInput')?.focus();
-        return;
+        document.getElementById('oduncGunInput')?.focus(); return;
       }
       _kapat({ borrower, gun });
     }
-
     document.getElementById('oduncOnayBtn').addEventListener('click', _onay);
-    document.getElementById('oduncAlanInput')?.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') document.getElementById('oduncGunInput')?.focus();
-    });
-    document.getElementById('oduncGunInput')?.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') _onay();
+    document.getElementById('oduncAlanInput')?.addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('oduncGunInput')?.focus(); });
+    document.getElementById('oduncGunInput')?.addEventListener('keydown', e => { if (e.key === 'Enter') _onay(); });
+  });
+}
+
+// ── İade Seçim Modali ─────────────────────────────────────────────────────
+// ÖDÜNÇTE kopyalar listesini gösterir, kullanıcının seçtiği kopya nesnesini döndürür.
+function _iadeSecimModal(oduncteKopyalar) {
+  return new Promise(resolve => {
+    document.getElementById('iadeSecimOverlay')?.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'iadeSecimOverlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:3500;background:rgba(0,0,0,0.55);' +
+      'display:flex;align-items:flex-end;justify-content:center;';
+
+    const itemsHtml = oduncteKopyalar.map((k, i) => {
+      const tarih = k.oduncTarihi
+        ? new Date(k.oduncTarihi).toLocaleDateString('tr-TR', { day:'numeric', month:'numeric', year:'numeric' })
+        : '';
+      const label = [k.kitapKodu, k.oduncAlan, tarih].filter(Boolean).join(' — ');
+      return `<button data-idx="${i}" style="
+        display:block;width:100%;text-align:left;padding:14px 18px;
+        font-size:15px;font-weight:600;
+        border:none;border-bottom:1px solid #f3f4f6;
+        background:#fff;cursor:pointer;color:#111;
+        -webkit-tap-highlight-color:transparent;">${guvenliYazi(label)}</button>`;
+    }).join('');
+
+    overlay.innerHTML = `
+      <div id="iadeSecimPanel" style="
+        background:#fff;border-radius:22px 22px 0 0;
+        width:100%;max-width:500px;
+        box-shadow:0 -8px 32px rgba(0,0,0,0.18);overflow:hidden;">
+        <div style="padding:16px 18px 12px;border-bottom:1px solid #f3f4f6;
+                    display:flex;align-items:center;gap:10px;">
+          <div style="width:36px;height:4px;border-radius:2px;background:#d1d5db"></div>
+          <span style="font-size:16px;font-weight:700;color:#111">📥 Hangi Kopya İade Ediliyor?</span>
+        </div>
+        <div style="max-height:50vh;overflow-y:auto;">${itemsHtml}</div>
+        <div style="padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px));">
+          <button id="iadeIptalBtn" style="
+            display:block;width:100%;padding:13px;
+            font-size:15px;font-weight:700;
+            border:none;border-radius:12px;
+            background:#f3f4f6;color:#374151;cursor:pointer;">İptal</button>
+        </div>
+      </div>`;
+
+    document.body.appendChild(overlay);
+
+    const panel = overlay.querySelector('#iadeSecimPanel');
+    panel.style.transform  = 'translateY(100%)';
+    panel.style.transition = 'transform 0.25s ease';
+    requestAnimationFrame(() => { panel.style.transform = 'translateY(0)'; });
+
+    function _kapat(result) {
+      panel.style.transform = 'translateY(100%)';
+      setTimeout(() => overlay.remove(), 250);
+      resolve(result);
+    }
+
+    document.getElementById('iadeIptalBtn').addEventListener('click', () => _kapat(null));
+    overlay.addEventListener('click', e => { if (e.target === overlay) _kapat(null); });
+    overlay.querySelectorAll('[data-idx]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        _kapat(oduncteKopyalar[parseInt(btn.dataset.idx, 10)]);
+      });
     });
   });
 }
 
 // ── Ödünç / İade ──────────────────────────────────────────────────────────
-async function loanBook(id) {
+async function loanBook(grupIdx) {
   listeMesajTemizle();
+  const g = _dispGrup[grupIdx];
+  if (!g) return;
+
+  // İlk RAFTA kopyayı seç
+  const hedef = g.kopya.find(k => String(k.durum || 'RAFTA').toUpperCase() === 'RAFTA');
+  if (!hedef) { listeMesaj('Rafta kopya bulunamadı', 'error'); return; }
 
   let defaultGun = 15;
   try {
@@ -891,7 +846,7 @@ async function loanBook(id) {
   const returnDate = iadeGun.toISOString().slice(0, 10);
 
   try {
-    const result = await apiPost({ action: 'loanBook', id, borrower, returnDate });
+    const result = await apiPost({ action: 'loanBook', id: hedef.id, borrower, returnDate });
     if (!result.ok) { listeMesaj(result.error || 'Ödünç verme hatası', 'error'); return; }
     listeMesaj(result.message || 'Kitap ödünç verildi', 'success');
     await loadBooks();
@@ -900,10 +855,26 @@ async function loanBook(id) {
   }
 }
 
-async function returnBook(id) {
+async function returnBook(grupIdx) {
   listeMesajTemizle();
+  const g = _dispGrup[grupIdx];
+  if (!g) return;
+
+  // Sadece ÖDÜNÇTE olanlar
+  const oduncteKopyalar = g.kopya.filter(k => String(k.durum || '').toUpperCase() === 'ÖDÜNÇTE');
+  if (!oduncteKopyalar.length) { listeMesaj('Ödünçte kopya bulunamadı', 'error'); return; }
+
+  let hedef;
+  if (oduncteKopyalar.length === 1) {
+    hedef = oduncteKopyalar[0];
+  } else {
+    // Birden fazla ÖDÜNÇTE → seçim modali (RAFTA olanlar gösterilmez)
+    hedef = await _iadeSecimModal(oduncteKopyalar);
+    if (!hedef) return; // kullanıcı iptal etti
+  }
+
   try {
-    const result = await apiPost({ action: 'returnBook', id });
+    const result = await apiPost({ action: 'returnBook', id: hedef.id });
     if (!result.ok) { listeMesaj(result.error || 'İade hatası', 'error'); return; }
     listeMesaj(result.message || 'Kitap iade alındı', 'success');
     await loadBooks();
@@ -914,13 +885,9 @@ async function returnBook(id) {
 
 // ── Init ──────────────────────────────────────────────────────────────────
 (function _init() {
-  const filtrRafta = document.getElementById('filtrRafta');
-  const filtrOdunc = document.getElementById('filtrOdunc');
-  if (filtrRafta) filtrRafta.addEventListener('click', () => _toggleDurum('RAFTA'));
-  if (filtrOdunc) filtrOdunc.addEventListener('click', () => _toggleDurum('ÖDÜNÇTE'));
-
-  const scrollTopBtn = document.getElementById('scrollTopBtn');
-  if (scrollTopBtn) scrollTopBtn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+  document.getElementById('filtrRafta')?.addEventListener('click', () => _toggleDurum('RAFTA'));
+  document.getElementById('filtrOdunc')?.addEventListener('click', () => _toggleDurum('ÖDÜNÇTE'));
+  document.getElementById('scrollTopBtn')?.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
 
   const searchInput = document.getElementById('search');
   if (searchInput) {
