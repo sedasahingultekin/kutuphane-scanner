@@ -84,7 +84,7 @@
     .app {
       max-width: 900px;
       margin: 0 auto;
-      padding: 124px 34px 24px 14px; /* top=112+12, right=22px A-Z + 12 */
+      padding: 124px 34px 24px 14px; /* top=112+12, right=A-Z bar + gap */
     }
 
     .list {
@@ -144,17 +144,6 @@
       word-break: break-word;
     }
 
-    .codeBadge {
-      display: inline-block;
-      margin-bottom: 10px;
-      padding: 8px 12px;
-      border-radius: 999px;
-      font-size: 14px;
-      font-weight: bold;
-      background: #e5e7eb;
-      color: #111827;
-    }
-
     .line {
       font-size: 16px;
       margin: 4px 0;
@@ -164,10 +153,10 @@
 
     .status {
       display: inline-block;
-      margin-top: 10px;
-      padding: 8px 12px;
+      margin-top: 6px;
+      padding: 5px 10px;
       border-radius: 999px;
-      font-size: 14px;
+      font-size: 12px;
       font-weight: bold;
     }
 
@@ -175,22 +164,25 @@
     .oduncte { background: #fee2e2; color: #991b1b; }
     .kayip   { background: #ffedd5; color: #9a3412; }
 
+    /* ── Kart butonları — her zaman yan yana ─────────────────────── */
     .actions {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 10px;
+      gap: 8px;
       margin-top: 14px;
     }
 
     .btn {
       border: none;
       border-radius: 12px;
-      padding: 14px;
-      font-size: 16px;
+      padding: 12px 6px;
+      font-size: 14px;
       font-weight: bold;
       cursor: pointer;
       color: #fff;
       width: 100%;
+      text-align: center;
+      -webkit-tap-highlight-color: transparent;
     }
 
     .btnLoan     { background: #0b57d0; }
@@ -224,10 +216,11 @@
     /* detay overlay içindeki status sınıfı */
     #detayOverlay .status {
       display: inline-block;
-      padding: 5px 10px;
+      padding: 3px 8px;
       border-radius: 999px;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: bold;
+      margin-top: 0;
     }
 
     /* ── A–Z Sağ Bar ─────────────────────────────────────────────── */
@@ -280,8 +273,9 @@
       pointer-events: none;
     }
 
+    /* ── Mobil ───────────────────────────────────────────────────── */
     @media (max-width: 640px) {
-      .actions { grid-template-columns: 1fr; }
+      /* .actions grid-template-columns OVERRIDE KALDIRILDI — her zaman yan yana */
       .coverWrap { width: 64px; min-width: 64px; max-width: 64px; }
       .coverImg, .coverPlaceholder { width: 64px; height: 92px; }
     }
@@ -313,13 +307,13 @@
     <div id="list" class="list"></div>
   </div>
 
-  <!-- A-Z Sidebar (harfler JS tarafından eklenir) -->
+  <!-- A-Z Sidebar -->
   <div id="azBar"></div>
   <div id="azOverlay"></div>
 
   <script src="./js/api.js?v=64"></script>
   <script src="./js/camera.js?v=63"></script>
   <script src="./js/utils.js?v=63"></script>
-  <script src="./js/liste.js?v=79"></script>
+  <script src="./js/liste.js?v=80"></script>
 </body>
 </html>
