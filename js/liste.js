@@ -1,4 +1,8 @@
-// js/liste.js — v80
+// js/liste.js — v81
+// v81: Kritik düzeltmeler
+//   1. _grupla: durum .trim().toUpperCase() ile normalize edildi (DB boşluk sorunu)
+//   2. returnBook: console.log eklendi (debug)
+//   3. Detay kopya satır aralığı daha da azaltıldı (5px 8px / 2px)
 // v80: UI ve akış düzeltmeleri
 //   1. Detay kopya satır aralığı ~%25 azaltıldı
 //   2. returnBook: direkt string karşılaştırma (k.durum === 'ÖDÜNÇTE') — daha güvenilir
@@ -46,12 +50,13 @@ function _grupla(kitaplar) {
       });
     }
     const g = map.get(key);
-    g.kopya.push(b);
+    // v81: durum normalize — DB'den gelen boşluk/küçük harf sorununu önler
+    const normDurum = String(b.durum || 'RAFTA').trim().toUpperCase();
+    g.kopya.push(Object.assign({}, b, { durum: normDurum }));
     g.toplam++;
-    const d = String(b.durum || 'RAFTA');
-    if (d === 'ÖDÜNÇTE')    g.oduncte++;
-    else if (d === 'KAYIP') g.kayip++;
-    else                    g.rafta++;
+    if (normDurum === 'ÖDÜNÇTE')    g.oduncte++;
+    else if (normDurum === 'KAYIP') g.kayip++;
+    else                            g.rafta++;
   }
   return [...map.values()];
 }
@@ -350,14 +355,14 @@ function detayAc(grupIdx) {
         : '';
       ekBilgi = guvenliYazi(k.oduncAlan + (tarih ? ' · ' + tarih : ''));
     }
-    // v80: padding %25 azaltıldı (9px→7px, 12px→10px), margin-bottom 6px→4px
+    // v81: padding daha da azaltıldı (7px→5px, 10px→8px), margin-bottom 4px→2px
     return `
-      <div style="display:flex;align-items:center;gap:8px;padding:7px 10px;
-                  border-radius:10px;background:#f9fafb;margin-bottom:4px;">
+      <div style="display:flex;align-items:center;gap:8px;padding:5px 8px;
+                  border-radius:10px;background:#f9fafb;margin-bottom:2px;">
         <span style="font-family:monospace;font-size:13px;font-weight:700;
                      color:#374151;flex-shrink:0;">${guvenliYazi(k.kitapKodu || '-')}</span>
         <span class="status ${dClass}" style="font-size:11px;padding:3px 8px;flex-shrink:0;">${dMetin}</span>
-        <span style="font-size:12px;color:#6b7280;flex:1;min-width:0;word-break:break-word;">${ekBilgi}</span>
+        <span style="font-size:11px;color:#6b7280;flex:1;min-width:0;word-break:break-word;">${ekBilgi}</span>
         ${d === 'ÖDÜNÇTE'
           ? `<button onclick="event.stopPropagation();_iadeKopyaIade(${Number(k.id)})"
                      style="flex-shrink:0;padding:4px 10px;font-size:12px;font-weight:700;
@@ -848,8 +853,9 @@ async function returnBook(grupIdx) {
   const g = _dispGrup[grupIdx];
   if (!g) return;
 
-  // v80: direkt '=== ÖDÜNÇTE' karşılaştırması — daha güvenilir
-  const oduncteKopyalar = g.kopya.filter(k => String(k.durum || '') === 'ÖDÜNÇTE');
+  // v81: durum zaten normalize edildi (_grupla'da), ama yine de güvenli karşılaştırma
+  const oduncteKopyalar = g.kopya.filter(k => k.durum === 'ÖDÜNÇTE');
+  console.log('[returnBook] grup:', g.kitapAdi, '| kopyalar:', g.kopya.map(k => k.kitapKodu + ':' + k.durum), '| oduncte:', oduncteKopyalar.length);
   if (!oduncteKopyalar.length) { listeMesaj('Ödünçte kopya bulunamadı', 'error'); return; }
 
   let hedef;
