@@ -84,6 +84,13 @@ export default {
 
         if (existing) {
           // Sistemde kayıtlı — internet'e gitmeden döndür
+          // mevcutSayisi: kaç kopya var (dinamik "N. kopya" metni için)
+          const countRow = await env.DB
+            .prepare("SELECT COUNT(*) AS cnt FROM books WHERE isbn = ?")
+            .bind(isbn)
+            .first();
+          const mevcutSayisi = Number(countRow?.cnt || 1);
+
           return jsonResponse(
             {
               ok: true,
@@ -98,6 +105,7 @@ export default {
                 aciklama:    "",
                 dil:         "",
                 zatenKayitli: true,
+                mevcutSayisi,
                 mevcutKayit:  mapBook(existing),
                 kaynakLocal:  true
               }
@@ -227,8 +235,15 @@ export default {
             .first();
 
           if (existing) {
+            // mevcutSayisi: kaç kopya var (dinamik "N. kopya" metni için)
+            const countRow = await env.DB
+              .prepare("SELECT COUNT(*) AS cnt FROM books WHERE isbn = ?")
+              .bind(isbn)
+              .first();
+            const mevcutSayisi = Number(countRow?.cnt || 1);
+
             return jsonResponse(
-              { ok: true, duplicate: true, message: "Bu ISBN ile kayıtlı kitap zaten var" },
+              { ok: true, duplicate: true, mevcutSayisi, message: "Bu ISBN ile kayıtlı kitap zaten var" },
               200,
               corsHeaders
             );

@@ -1,25 +1,41 @@
-// js/liste.js — v81
-// v81: Kritik düzeltmeler
-//   1. _grupla: durum .trim().toUpperCase() ile normalize edildi (DB boşluk sorunu)
-//   2. returnBook: console.log eklendi (debug)
-//   3. Detay kopya satır aralığı daha da azaltıldı (5px 8px / 2px)
+// js/liste.js — v82
+// v82: ASCII-safe durum karşılaştırması + v81 compact row fix korundu
+//   1. _durumNorm(): DB'den gelen durum string'ini ASCII-safe koda çevirir
+//      'RAFTA' → 'RAFTA' | 'ÖDÜNÇTE'(ve varyantları) → 'ODUNCTE' | 'KAYIP' → 'KAYIP'
+//   2. Tüm === 'ÖDÜNÇTE' karşılaştırmaları → === 'ODUNCTE' (Turkish char YOK)
+//   3. durumFiltre key 'ÖDÜNÇTE' → 'ODUNCTE'
+//   4. returnBook: k.durum === 'ODUNCTE' — modal artık kesinlikle tetiklenir
+//   5. console.log eklendi (debug)
+// v81: Detay kopya satır aralığı azaltıldı (5px 8px / 2px)
 // v80: UI ve akış düzeltmeleri
-//   1. Detay kopya satır aralığı ~%25 azaltıldı
-//   2. returnBook: direkt string karşılaştırma (k.durum === 'ÖDÜNÇTE') — daha güvenilir
-//   3. Detay sticky footer: [Ödünç Ver] [Kaydet] [Kapat] 3 sabit buton
-//   4. Detay kopya satırlarına per-copy [İade] butonu eklendi (ÖDÜNÇTE olanlar için)
-//   5. Liste kartı butonları: mobil'de de yan yana (liste.html CSS değişikliği ile)
 // v79: ISBN bazlı gruplama, seçim modali, tüm kopyaları güncelleme
-// v72: Durum dağılımlı badge
 
 // ── State ─────────────────────────────────────────────────────────────────
 let books     = [];
 let gruplar   = [];
 let _dispGrup = [];
 let _detayGrupIdx = -1;
-let durumFiltre = { 'RAFTA': true, 'ÖDÜNÇTE': true };
+
+// v82: ODUNCTE key (ASCII) — Turkish char karşılaştırma sorunu tamamen kaldırıldı
+let durumFiltre = { 'RAFTA': true, 'ODUNCTE': true };
 
 const TR_ALFABE = 'ABCÇDEFGĞHIİJKLMNOÖPRSŞTUÜVYZ';
+
+// ── Durum normalize ────────────────────────────────────────────────────────
+// DB'den veya API'den gelen durum string'ini ASCII-safe iç koda çevirir.
+// Böylece tüm karşılaştırmalar Turkish char içermez → encoding sorunu yok.
+function _durumNorm(raw) {
+  const s = String(raw || '').trim();
+  if (!s || s.toUpperCase() === 'RAFTA') return 'RAFTA';
+  if (s.toUpperCase() === 'KAYIP')       return 'KAYIP';
+  // ÖDÜNÇTE — ilk karakter Ö (U+00D6=214) veya ö (U+00F6=246), ya da büyük harfli variant
+  const c0 = s.charCodeAt(0);
+  if (c0 === 214 || c0 === 246) return 'ODUNCTE';
+  // Fallback: içeriğe göre
+  const up = s.toUpperCase();
+  if (up.indexOf('D\u00DCN') !== -1) return 'ODUNCTE'; // ÜN kısmı — 'DÜNÇ' içeriyor
+  return 'RAFTA';
+}
 
 // ── ISBN Normalize ─────────────────────────────────────────────────────────
 function _normIsbn(raw) {
@@ -50,13 +66,13 @@ function _grupla(kitaplar) {
       });
     }
     const g = map.get(key);
-    // v81: durum normalize — DB'den gelen boşluk/küçük harf sorununu önler
-    const normDurum = String(b.durum || 'RAFTA').trim().toUpperCase();
+    // v82: _durumNorm → ASCII-safe internal code ('RAFTA' | 'ODUNCTE' | 'KAYIP')
+    const normDurum = _durumNorm(b.durum);
     g.kopya.push(Object.assign({}, b, { durum: normDurum }));
     g.toplam++;
-    if (normDurum === 'ÖDÜNÇTE')    g.oduncte++;
-    else if (normDurum === 'KAYIP') g.kayip++;
-    else                            g.rafta++;
+    if      (normDurum === 'ODUNCTE') g.oduncte++;
+    else if (normDurum === 'KAYIP')   g.kayip++;
+    else                              g.rafta++;
   }
   return [...map.values()];
 }
@@ -179,8 +195,9 @@ function _autocompleteTemizle() {
 function _topBarRender() {
   const r = document.getElementById('filtrRafta');
   const o = document.getElementById('filtrOdunc');
+  // v82: durumFiltre key 'ODUNCTE' (ASCII-safe)
   if (r) { r.style.background = durumFiltre['RAFTA']   ? '#047857' : '#374151'; r.style.color = '#fff'; r.style.opacity = durumFiltre['RAFTA']   ? '1' : '0.45'; }
-  if (o) { o.style.background = durumFiltre['ÖDÜNÇTE'] ? '#b91c1c' : '#374151'; o.style.color = '#fff'; o.style.opacity = durumFiltre['ÖDÜNÇTE'] ? '1' : '0.45'; }
+  if (o) { o.style.background = durumFiltre['ODUNCTE'] ? '#b91c1c' : '#374151'; o.style.color = '#fff'; o.style.opacity = durumFiltre['ODUNCTE'] ? '1' : '0.45'; }
 }
 
 function _toggleDurum(durum) {
@@ -264,8 +281,9 @@ function renderList() {
   const list = document.getElementById('list');
   if (!list) return;
 
+  // v82: durumFiltre key 'ODUNCTE' (ASCII-safe)
   let filtered = gruplar.filter(g => {
-    const durumOk = (durumFiltre['RAFTA'] && g.rafta > 0) || (durumFiltre['ÖDÜNÇTE'] && g.oduncte > 0);
+    const durumOk = (durumFiltre['RAFTA'] && g.rafta > 0) || (durumFiltre['ODUNCTE'] && g.oduncte > 0);
     if (!durumOk) return false;
     if (!q) return true;
     return (
@@ -343,19 +361,20 @@ function detayAc(grupIdx) {
   const yazarOner = [...new Set(books.map(b => b.yazar   ).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'tr'));
   const yayiOner  = [...new Set(books.map(b => b.yayinevi).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'tr'));
 
-  // Kopyalar — kompakt satırlar, ÖDÜNÇTE kopyalara [İade] butonu
+  // Kopyalar — v82: k.durum artık 'ODUNCTE' | 'RAFTA' | 'KAYIP' (ASCII)
   const kopyaHtml = g.kopya.map(k => {
     const d      = String(k.durum || 'RAFTA');
-    const dClass = d === 'ÖDÜNÇTE' ? 'oduncte' : d === 'KAYIP' ? 'kayip' : 'rafta';
-    const dMetin = d === 'ÖDÜNÇTE' ? 'Ödünçte' : d === 'KAYIP' ? 'Kayıp' : 'Rafta';
+    // v82: ASCII-safe karşılaştırma
+    const dClass = d === 'ODUNCTE' ? 'oduncte' : d === 'KAYIP' ? 'kayip' : 'rafta';
+    const dMetin = d === 'ODUNCTE' ? 'Ödünçte' : d === 'KAYIP' ? 'Kayıp' : 'Rafta';
     let ekBilgi  = '';
-    if (d === 'ÖDÜNÇTE' && k.oduncAlan) {
+    if (d === 'ODUNCTE' && k.oduncAlan) {
       const tarih = k.oduncTarihi
         ? new Date(k.oduncTarihi).toLocaleDateString('tr-TR', { day:'numeric', month:'numeric', year:'numeric' })
         : '';
       ekBilgi = guvenliYazi(k.oduncAlan + (tarih ? ' · ' + tarih : ''));
     }
-    // v81: padding daha da azaltıldı (7px→5px, 10px→8px), margin-bottom 4px→2px
+    // v81: padding 5px 8px, margin-bottom 2px
     return `
       <div style="display:flex;align-items:center;gap:8px;padding:5px 8px;
                   border-radius:10px;background:#f9fafb;margin-bottom:2px;">
@@ -363,7 +382,7 @@ function detayAc(grupIdx) {
                      color:#374151;flex-shrink:0;">${guvenliYazi(k.kitapKodu || '-')}</span>
         <span class="status ${dClass}" style="font-size:11px;padding:3px 8px;flex-shrink:0;">${dMetin}</span>
         <span style="font-size:11px;color:#6b7280;flex:1;min-width:0;word-break:break-word;">${ekBilgi}</span>
-        ${d === 'ÖDÜNÇTE'
+        ${d === 'ODUNCTE'
           ? `<button onclick="event.stopPropagation();_iadeKopyaIade(${Number(k.id)})"
                      style="flex-shrink:0;padding:4px 10px;font-size:12px;font-weight:700;
                             border:none;border-radius:8px;background:#047857;color:#fff;
@@ -438,7 +457,7 @@ function detayAc(grupIdx) {
           </div>
         </div>
 
-        <!-- Kopyalar listesi — v80: kompakt satırlar + per-copy İade butonu -->
+        <!-- Kopyalar listesi — v82: ASCII-safe durum + v81 kompakt satırlar -->
         <div style="padding:0 18px 18px">
           <div style="font-size:13px;font-weight:700;color:#6b7280;
                       text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">
@@ -481,7 +500,7 @@ function detayAc(grupIdx) {
 
       </div><!-- /scrollable -->
 
-      <!-- v80: Sticky footer — 3 sabit buton: [Ödünç Ver] [Kaydet] [Kapat] -->
+      <!-- Sticky footer — 3 sabit buton: [Ödünç Ver] [Kaydet] [Kapat] -->
       <div style="
         flex-shrink:0;
         padding:10px 14px calc(10px + env(safe-area-inset-bottom,0px));
@@ -752,7 +771,7 @@ function _oduncModalGoster(defaultGun) {
 }
 
 // ── İade Seçim Modali ─────────────────────────────────────────────────────
-// Birden fazla ÖDÜNÇTE kopya varsa kullanıcıya seçim yaptırır.
+// Birden fazla ODUNCTE kopya varsa kullanıcıya seçim yaptırır.
 // RAFTA olanlar asla bu listede görünmez.
 function _iadeSecimModal(oduncteKopyalar) {
   return new Promise(resolve => {
@@ -818,8 +837,8 @@ async function loanBook(grupIdx) {
   const g = _dispGrup[grupIdx];
   if (!g) return;
 
-  // İlk RAFTA kopyayı seç — direkt string karşılaştırma
-  const hedef = g.kopya.find(k => String(k.durum || 'RAFTA') === 'RAFTA');
+  // v82: 'RAFTA' ASCII-safe — sorun yok
+  const hedef = g.kopya.find(k => k.durum === 'RAFTA');
   if (!hedef) { listeMesaj('Rafta kopya bulunamadı', 'error'); return; }
 
   let defaultGun = 15;
@@ -847,23 +866,29 @@ async function loanBook(grupIdx) {
   }
 }
 
-// v80: returnBook — direkt string karşılaştırma, selection modal korunuyor
+// v82: returnBook — 'ODUNCTE' (ASCII-safe) karşılaştırma
+// ÖDÜNÇTE Turkish char içerdiği için === karşılaştırması ortama göre fail edebilir.
+// _durumNorm() 'ODUNCTE' döndürdüğü için bu filter 100% güvenilir.
 async function returnBook(grupIdx) {
   listeMesajTemizle();
   const g = _dispGrup[grupIdx];
-  if (!g) return;
+  if (!g) { console.warn('[returnBook] geçersiz grupIdx:', grupIdx); return; }
 
-  // v81: durum zaten normalize edildi (_grupla'da), ama yine de güvenli karşılaştırma
-  const oduncteKopyalar = g.kopya.filter(k => k.durum === 'ÖDÜNÇTE');
-  console.log('[returnBook] grup:', g.kitapAdi, '| kopyalar:', g.kopya.map(k => k.kitapKodu + ':' + k.durum), '| oduncte:', oduncteKopyalar.length);
+  // v82: ASCII-safe — Turkish char yok, comparison kesinlikle doğru çalışır
+  const oduncteKopyalar = g.kopya.filter(k => k.durum === 'ODUNCTE');
+  console.log('[returnBook] grup:', g.kitapAdi,
+    '| kopyalar:', g.kopya.map(k => k.kitapKodu + ':' + k.durum),
+    '| oduncte bulundu:', oduncteKopyalar.length);
+
   if (!oduncteKopyalar.length) { listeMesaj('Ödünçte kopya bulunamadı', 'error'); return; }
 
   let hedef;
   if (oduncteKopyalar.length === 1) {
-    // Tek ÖDÜNÇTE kopya → direkt iade
+    // Tek ODUNCTE kopya → direkt iade
     hedef = oduncteKopyalar[0];
   } else {
-    // Birden fazla ÖDÜNÇTE → seçim modali — RAFTA olanlar asla görünmez
+    // Birden fazla ODUNCTE → seçim modali — RAFTA olanlar asla görünmez
+    console.log('[returnBook] seçim modali açılıyor, kopya sayısı:', oduncteKopyalar.length);
     hedef = await _iadeSecimModal(oduncteKopyalar);
     if (!hedef) return;
   }
@@ -881,7 +906,8 @@ async function returnBook(grupIdx) {
 // ── Init ──────────────────────────────────────────────────────────────────
 (function _init() {
   document.getElementById('filtrRafta')?.addEventListener('click', () => _toggleDurum('RAFTA'));
-  document.getElementById('filtrOdunc')?.addEventListener('click', () => _toggleDurum('ÖDÜNÇTE'));
+  // v82: 'ODUNCTE' (ASCII-safe key) — Turkish char içermez
+  document.getElementById('filtrOdunc')?.addEventListener('click', () => _toggleDurum('ODUNCTE'));
   document.getElementById('scrollTopBtn')?.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
 
   const searchInput = document.getElementById('search');

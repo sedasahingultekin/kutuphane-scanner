@@ -1,12 +1,13 @@
-// js/ekle.js — v67
+// js/ekle.js — v68
+// v68: Dinamik kopya numarası
+//   - worker.js isbnLookup ve bookAdd artık mevcutSayisi döndürüyor
+//   - "Ekle (2. kopya)" metni artık dinamik: mevcut kopya sayısı + 1
+//   - _ekleGecPaneliGoster(aciklama, kopySayisi) — 2. param isteğe bağlı
+//   - isbnBilgisiGetir: data.mevcutSayisi varsa kopySayisi hesaplanır
+//   - kitapEkle(false): sonuc.mevcutSayisi varsa kopySayisi hesaplanır
 // v67: bookAddForce — ikinci kopya için ayrı action
-//   - forceAdd=true → action:"bookAddForce" gönderir (forceAdd flag YOK)
-//   - bookAddForce worker'da ISBN duplicate kontrolü olmayan bağımsız action
-//   - Eski worker "Bilinmeyen action" döndürürse açık hata mesajı gösterilir
 // v66: forceAdd diagnostic
-// v65: forceAdd=true: duplicate/zaten kontrolleri atlanır (hızlı_ekle mantığı)
-// v64: Duplicate ISBN: isbnBilgisiGetir() → Ekle/Geç panel, mesajKutusu Kaydet üstüne
-// v63: basHarfBuyut global, forceAdd duplicate bypass
+// v65: forceAdd=true: duplicate/zaten kontrolleri atlanır
 
 // ── Kamera ────────────────────────────────────────────────────────────────
 async function kamerayiBaslatEkle() {
@@ -267,7 +268,7 @@ function ekleForm() {
       <!-- Kitap önizleme + duplicate seçenek paneli buraya eklenir -->
       <div id="ekleKitapAlani"></div>
 
-      <!-- v65: mesajKutusu ISBN bölümünün hemen altında — scroll gerekmez -->
+      <!-- mesajKutusu ISBN bölümünün hemen altında — scroll gerekmez -->
       <div id="mesajKutusu" class="mesajKutusu"></div>
 
       <label class="formLabel">Kitap Adı</label>
@@ -306,8 +307,10 @@ function formuTemizle() {
 }
 
 // ── Duplicate seçenek paneli ──────────────────────────────────────────────
-// Hem isbnBilgisiGetir() hem kitapEkle() bu paneli kullanır
-function _ekleGecPaneliGoster(aciklama) {
+// Hem isbnBilgisiGetir() hem kitapEkle() bu paneli kullanabilir.
+// kopySayisi: sistemdeki mevcut kopya sayısı + 1 (eklenen kopya sırası)
+function _ekleGecPaneliGoster(aciklama, kopySayisi) {
+  const no = Math.max(2, Number(kopySayisi) || 2);
   const kutu = document.getElementById('mesajKutusu');
   if (!kutu) return;
   kutu.className   = 'mesajKutusu mesaj-warn';
@@ -319,14 +322,13 @@ function _ekleGecPaneliGoster(aciklama) {
         `padding:13px;font-size:15px;font-weight:bold;` +
         `border:none;border-radius:10px;` +
         `background:#0b57d0;color:#fff;cursor:pointer;` +
-      `">📥 Ekle (2. kopya)</button>` +
+      `">📥 Ekle (${no}. kopya)</button>` +
       `<button onclick="formuTemizle()" style="` +
         `padding:13px;font-size:15px;font-weight:bold;` +
         `border:none;border-radius:10px;` +
         `background:#6b7280;color:#fff;cursor:pointer;` +
       `">✕ Geç</button>` +
     `</div>`;
-  // Scroll'a gerek kalmadan mesaj görünsün
   kutu.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
@@ -382,28 +384,34 @@ async function isbnBilgisiGetir() {
           </div>`
         : '';
 
-      // v64: duplicate ise kart içinde Ekle/Geç seçeneği göster
-      const dupBolumu = data.zatenKayitli ? `
-        <div style="
-          margin-top:14px;padding-top:14px;
-          border-top:2px solid #fdba74;
-        ">
+      // v68: kopySayisi dinamik — worker mevcutSayisi döndürüyor
+      let dupBolumu = '';
+      if (data.zatenKayitli) {
+        // mevcutSayisi: sistemdeki toplam kopya sayısı
+        // kopySayisi: eklenecek kopyanın sırası = mevcutSayisi + 1
+        const kopySayisi = (Number(data.mevcutSayisi) || 1) + 1;
+        dupBolumu = `
           <div style="
-            font-size:15px;font-weight:bold;color:#92400e;margin-bottom:10px;
-          ">⚠️ Bu ISBN sistemde zaten kayıtlı. Ne yapmak istiyorsunuz?</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-            <button onclick="kitapEkle(true)" style="
-              padding:13px;font-size:15px;font-weight:bold;
-              border:none;border-radius:10px;
-              background:#0b57d0;color:#fff;cursor:pointer;
-            ">📥 Ekle (2. kopya)</button>
-            <button onclick="formuTemizle()" style="
-              padding:13px;font-size:15px;font-weight:bold;
-              border:none;border-radius:10px;
-              background:#6b7280;color:#fff;cursor:pointer;
-            ">✕ Geç</button>
-          </div>
-        </div>` : '';
+            margin-top:14px;padding-top:14px;
+            border-top:2px solid #fdba74;
+          ">
+            <div style="
+              font-size:15px;font-weight:bold;color:#92400e;margin-bottom:10px;
+            ">⚠️ Bu ISBN sistemde zaten kayıtlı (${data.mevcutSayisi || 1} kopya). Ne yapmak istiyorsunuz?</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <button onclick="kitapEkle(true)" style="
+                padding:13px;font-size:15px;font-weight:bold;
+                border:none;border-radius:10px;
+                background:#0b57d0;color:#fff;cursor:pointer;
+              ">📥 Ekle (${kopySayisi}. kopya)</button>
+              <button onclick="formuTemizle()" style="
+                padding:13px;font-size:15px;font-weight:bold;
+                border:none;border-radius:10px;
+                background:#6b7280;color:#fff;cursor:pointer;
+              ">✕ Geç</button>
+            </div>
+          </div>`;
+      }
 
       kartAlani.innerHTML = `
         <div class="kitapKart">
@@ -421,7 +429,6 @@ async function isbnBilgisiGetir() {
         </div>
       `;
 
-      // Kart görünsün
       kartAlani.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
 
@@ -479,8 +486,13 @@ async function kitapEkle(forceAdd) {
     }
 
     // Normal bookAdd → duplicate kontrolü
+    // v68: sonuc.mevcutSayisi varsa dinamik kopya numarası gösterilir
     if (!forceAdd && sonuc.duplicate) {
-      _ekleGecPaneliGoster('Bu ISBN ile kayıtlı bir kitap zaten var. İkinci kopya olarak eklemek ister misiniz?');
+      const kopySayisi = (Number(sonuc.mevcutSayisi) || 1) + 1;
+      _ekleGecPaneliGoster(
+        'Bu ISBN ile kayıtlı bir kitap zaten var. İkinci kopya olarak eklemek ister misiniz?',
+        kopySayisi
+      );
       return;
     }
 
