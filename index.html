@@ -133,7 +133,6 @@
 
     .listBtn{
       width:100%;
-      margin-top:14px;
       padding:24px;
       border:none;
       border-radius:22px;
@@ -149,6 +148,20 @@
       display:block;
       width:100%;
       text-decoration:none;
+    }
+
+    .row-buttons{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:10px;
+      margin-top:14px;
+    }
+
+    .row-buttons .hizliBtn,
+    .row-buttons .listBtn{
+      margin-top:0;
+      font-size:20px;
+      padding:20px 10px;
     }
 
     #formAlani{
@@ -176,8 +189,10 @@
         font-size:20px;
       }
 
-      .listBtn, .hizliBtn{
-        font-size:22px;
+      .row-buttons .listBtn,
+      .row-buttons .hizliBtn{
+        font-size:18px;
+        padding:18px 8px;
       }
     }
   </style>
@@ -216,13 +231,15 @@
       </button>
     </div>
 
-    <button class="hizliBtn" type="button" onclick="hizliEkleForm()">
-      ⚡ Hızlı Ekle
-    </button>
+    <div class="row-buttons">
+      <button class="hizliBtn" type="button" onclick="hizliEkleForm()">
+        ⚡ Hızlı Ekle
+      </button>
 
-    <a class="linkLike" href="./liste.html?v=51">
-      <button class="listBtn" type="button">📚<br>Kitap Listesi</button>
-    </a>
+      <a class="linkLike" href="./liste.html?v=51">
+        <button class="listBtn" type="button">📚 Kitap Listesi</button>
+      </a>
+    </div>
 
     <div id="formAlani"></div>
   </div>
