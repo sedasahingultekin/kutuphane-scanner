@@ -1,8 +1,12 @@
-// js/liste.js — v84
+// js/liste.js — v85
+// v85: Per-kopya iade onayı inline UI (window.confirm() kaldırıldı)
+//   1. _iadeOnayBekleyenId: hangi kopyanın confirm modunda olduğunu tutar
+//   2. _kopyaListRender(g): kopya listesini dinamik render eder
+//      - Normal satır: [İade] butonu
+//      - Confirm satır: amber outline, [İptal] [Onayla] butonları
+//   3. _iadeOnayBaslat / _iadeOnayIptal: state yönetimi
+//   4. Tek seferde tek kopya confirm modunda — başkasına tıklamak öncekini sıfırlar
 // v84: Detay ekranı UI iyileştirmeleri
-//   1. Kopya durumu renkleri: RAFTA=yeşil, ÖDÜNÇTE=sarı (kırmızıdan değiştirildi)
-//   2. Per-kopya İade butonu: window.confirm() onayı eklendi (önce sormadan iade etmiyordu)
-//   3. Detay başlık: kitap adı daha büyük/kalın (24px/800), yazar normal, ISBN küçük+gri
 // v83: İade seçim modali multi-select + onay butonu
 //   1. _iadeSecimModal: tıklama artık direkt iade yapmaz, toggle seçim yapar
 //   2. Seçili satırlar: yeşil arka plan + ✓ işareti
@@ -21,6 +25,7 @@ let _dispGrup = [];
 let _detayGrupIdx = -1;
 
 let durumFiltre = { 'RAFTA': true, 'ODUNCTE': true };
+let _iadeOnayBekleyenId = null; // per-copy inline confirm state
 
 const TR_ALFABE = 'ABCÇDEFGĞHIİJKLMNOÖPRSŞTUÜVYZ';
 
@@ -341,6 +346,7 @@ function detayAc(grupIdx) {
   const g = _dispGrup[grupIdx];
   if (!g) return;
   _detayGrupIdx = grupIdx;
+  _iadeOnayBekleyenId = null; // reset confirm state on every open
 
   const badge  = _durumBadge(g);
   const ilkId  = g.kopya[0]?.id;
@@ -353,35 +359,6 @@ function detayAc(grupIdx) {
 
   const yazarOner = [...new Set(books.map(b => b.yazar   ).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'tr'));
   const yayiOner  = [...new Set(books.map(b => b.yayinevi).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'tr'));
-
-  const kopyaHtml = g.kopya.map(k => {
-    const d      = String(k.durum || 'RAFTA');
-    const dClass = d === 'ODUNCTE' ? 'oduncte' : d === 'KAYIP' ? 'kayip' : 'rafta';
-    const dMetin = d === 'ODUNCTE' ? 'Ödünçte' : d === 'KAYIP' ? 'Kayıp' : 'Rafta';
-    let ekBilgi  = '';
-    if (d === 'ODUNCTE' && k.oduncAlan) {
-      const tarih = k.oduncTarihi
-        ? new Date(k.oduncTarihi).toLocaleDateString('tr-TR', { day:'numeric', month:'numeric', year:'numeric' })
-        : '';
-      ekBilgi = guvenliYazi(k.oduncAlan + (tarih ? ' · ' + tarih : ''));
-    }
-    return `
-      <div style="display:flex;align-items:center;gap:8px;padding:5px 8px;
-                  border-radius:10px;background:#f9fafb;margin-bottom:2px;">
-        <span style="font-family:monospace;font-size:13px;font-weight:700;
-                     color:#374151;flex-shrink:0;">${guvenliYazi(k.kitapKodu || '-')}</span>
-        <span class="status ${dClass}" style="font-size:11px;padding:3px 8px;flex-shrink:0;">${dMetin}</span>
-        <span style="font-size:11px;color:#6b7280;flex:1;min-width:0;word-break:break-word;">${ekBilgi}</span>
-        ${d === 'ODUNCTE'
-          ? `<button onclick="event.stopPropagation();_iadeKopyaIade(${Number(k.id)})"
-                     style="flex-shrink:0;padding:4px 10px;font-size:12px;font-weight:700;
-                            border:none;border-radius:8px;background:#047857;color:#fff;
-                            cursor:pointer;-webkit-tap-highlight-color:transparent;">
-               İade
-             </button>`
-          : ''}
-      </div>`;
-  }).join('');
 
   document.getElementById('detayOverlay')?.remove();
 
@@ -449,7 +426,7 @@ function detayAc(grupIdx) {
                       text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">
             Kopyalar (${g.toplam})
           </div>
-          ${kopyaHtml}
+          <div id="kopyaListesi"></div>
         </div>
 
         <div style="padding:0 18px 18px;border-top:1px solid #f3f4f6">
@@ -533,8 +510,89 @@ function detayAc(grupIdx) {
     requestAnimationFrame(() => { panel.style.transform = 'translateY(0)'; });
   }
 
+  _kopyaListRender(g);
+
   _autocompleteSetup(document.getElementById('detayEditYazar'),    yazarOner);
   _autocompleteSetup(document.getElementById('detayEditYayinevi'), yayiOner);
+}
+
+// ── Per-kopya inline confirm ──────────────────────────────────────────────
+
+// Render (or re-render) the #kopyaListesi container for group g.
+// Rows with d=ODUNCTE show [İade] unless that copy is in confirm mode,
+// in which case they expand to show [İptal] [Onayla] with amber highlight.
+function _kopyaListRender(g) {
+  const el = document.getElementById('kopyaListesi');
+  if (!el) return;
+
+  el.innerHTML = g.kopya.map(k => {
+    const d      = String(k.durum || 'RAFTA');
+    const dClass = d === 'ODUNCTE' ? 'oduncte' : d === 'KAYIP' ? 'kayip' : 'rafta';
+    const dMetin = d === 'ODUNCTE' ? 'Ödünçte' : d === 'KAYIP' ? 'Kayıp' : 'Rafta';
+    let ekBilgi  = '';
+    if (d === 'ODUNCTE' && k.oduncAlan) {
+      const tarih = k.oduncTarihi
+        ? new Date(k.oduncTarihi).toLocaleDateString('tr-TR', { day:'numeric', month:'numeric', year:'numeric' })
+        : '';
+      ekBilgi = guvenliYazi(k.oduncAlan + (tarih ? ' · ' + tarih : ''));
+    }
+
+    const confirming = (d === 'ODUNCTE' && _iadeOnayBekleyenId === Number(k.id));
+
+    // Shared: code + badge + borrower info
+    const infoRow = `
+      <div style="display:flex;align-items:center;gap:8px;padding:5px 8px;">
+        <span style="font-family:monospace;font-size:13px;font-weight:700;
+                     color:#374151;flex-shrink:0;">${guvenliYazi(k.kitapKodu || '-')}</span>
+        <span class="status ${dClass}" style="font-size:11px;padding:3px 8px;flex-shrink:0;">${dMetin}</span>
+        <span style="font-size:11px;color:#6b7280;flex:1;min-width:0;word-break:break-word;">${ekBilgi}</span>
+        ${d === 'ODUNCTE' && !confirming
+          ? `<button onclick="event.stopPropagation();_iadeOnayBaslat(${Number(k.id)})"
+                     style="flex-shrink:0;padding:4px 10px;font-size:12px;font-weight:700;
+                            border:none;border-radius:8px;background:#047857;color:#fff;
+                            cursor:pointer;-webkit-tap-highlight-color:transparent;">İade</button>`
+          : ''}
+      </div>`;
+
+    if (confirming) {
+      // Expanded confirm state: amber outline, second row with İptal + Onayla
+      return `
+        <div style="border-radius:10px;background:#fffbeb;
+                    border:1.5px solid #f59e0b;margin-bottom:4px;overflow:hidden;">
+          ${infoRow}
+          <div style="display:flex;gap:8px;padding:2px 8px 8px;justify-content:flex-end;">
+            <button onclick="event.stopPropagation();_iadeOnayIptal()"
+                    style="padding:5px 16px;font-size:12px;font-weight:700;
+                           border:none;border-radius:8px;background:#f3f4f6;color:#374151;
+                           cursor:pointer;-webkit-tap-highlight-color:transparent;">İptal</button>
+            <button onclick="event.stopPropagation();_iadeKopyaIade(${Number(k.id)})"
+                    style="padding:5px 16px;font-size:12px;font-weight:700;
+                           border:none;border-radius:8px;background:#047857;color:#fff;
+                           cursor:pointer;-webkit-tap-highlight-color:transparent;">✓ Onayla</button>
+          </div>
+        </div>`;
+    }
+
+    // Normal state
+    return `
+      <div style="border-radius:10px;background:#f9fafb;margin-bottom:2px;">
+        ${infoRow}
+      </div>`;
+  }).join('');
+}
+
+// Start confirm mode for a specific copy; cancels any previously open row.
+function _iadeOnayBaslat(bookId) {
+  _iadeOnayBekleyenId = Number(bookId);
+  const g = _dispGrup[_detayGrupIdx];
+  if (g) _kopyaListRender(g);
+}
+
+// Cancel confirm mode, return row to normal.
+function _iadeOnayIptal() {
+  _iadeOnayBekleyenId = null;
+  const g = _dispGrup[_detayGrupIdx];
+  if (g) _kopyaListRender(g);
 }
 
 function _detayLoan() {
@@ -545,7 +603,7 @@ function _detayLoan() {
 }
 
 async function _iadeKopyaIade(bookId) {
-  if (!window.confirm('Bu kopyayı iade almak istediğinize emin misiniz?')) return;
+  _iadeOnayBekleyenId = null; // clear confirm state — API call is now happening
   try {
     const result = await apiPost({ action: 'returnBook', id: bookId });
     if (!result.ok) {
