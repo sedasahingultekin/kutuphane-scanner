@@ -1,4 +1,10 @@
-// js/liste.js — v85
+// js/liste.js — v86
+// v86: Per-kopya iade sonrası detay ekranı açık kalır
+//   1. _iadeKopyaIade: detayKapat() çağrısı kaldırıldı
+//   2. İade başarılı olunca: loadBooks() → aynı grubu grupKey ile bul →
+//      badge + loan butonu patch, _kopyaListRender() — overlay dokunulmaz
+//   3. detayAc: status badge → id="detayBadge",
+//      iki ayrı loan butonu → tek id="detayLoanBtn"
 // v85: Per-kopya iade onayı inline UI (window.confirm() kaldırıldı)
 //   1. _iadeOnayBekleyenId: hangi kopyanın confirm modunda olduğunu tutar
 //   2. _kopyaListRender(g): kopya listesini dinamik render eder
@@ -407,7 +413,7 @@ function detayAc(grupIdx) {
               onchange="detayKapakSecildi(${Number(ilkId)}, this)">
           </div>
           <div style="flex:1;min-width:0">
-            <span style="display:inline-flex;align-items:center;gap:4px;margin-bottom:6px;
+            <span id="detayBadge" style="display:inline-flex;align-items:center;gap:4px;margin-bottom:6px;
                          background:${badge.bg};color:${badge.fg};
                          padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;">
               📚 ${g.toplam} adet &bull; ${guvenliYazi(badge.tekst)}
@@ -467,19 +473,16 @@ function detayAc(grupIdx) {
         border-top:1px solid #f3f4f6;background:#fff;">
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
 
-          ${g.rafta > 0
-            ? `<button onclick="_detayLoan()" style="
-                padding:13px 6px;font-size:13px;font-weight:700;line-height:1.2;
-                border:none;border-radius:12px;background:#0b57d0;color:#fff;
-                cursor:pointer;-webkit-tap-highlight-color:transparent;text-align:center;">
-                📤 Ödünç<br>Ver
-              </button>`
-            : `<button disabled style="
-                padding:13px 6px;font-size:13px;font-weight:700;line-height:1.2;
-                border:none;border-radius:12px;background:#e5e7eb;color:#9ca3af;
-                cursor:not-allowed;text-align:center;">
-                📤 Ödünç<br>Ver
-              </button>`}
+          <button id="detayLoanBtn"
+            ${g.rafta > 0 ? 'onclick="_detayLoan()"' : 'disabled'}
+            style="padding:13px 6px;font-size:13px;font-weight:700;line-height:1.2;
+                   border:none;border-radius:12px;text-align:center;
+                   -webkit-tap-highlight-color:transparent;
+                   background:${g.rafta > 0 ? '#0b57d0' : '#e5e7eb'};
+                   color:${g.rafta > 0 ? '#fff' : '#9ca3af'};
+                   cursor:${g.rafta > 0 ? 'pointer' : 'not-allowed'};">
+            📤 Ödünç<br>Ver
+          </button>
 
           <button onclick="detayKaydet()" style="
             padding:13px 6px;font-size:13px;font-weight:700;line-height:1.2;
@@ -604,31 +607,83 @@ function _detayLoan() {
 
 async function _iadeKopyaIade(bookId) {
   _iadeOnayBekleyenId = null; // clear confirm state — API call is now happening
+
+  // Remember which group is open so we can find it again after refresh
+  const grupKey = _dispGrup[_detayGrupIdx]?.grupKey;
+
+  function _detayHata(msg) {
+    const el = document.getElementById('detayMesaj');
+    if (!el) return;
+    el.style.display    = 'block';
+    el.style.background = '#fee2e2';
+    el.style.color      = '#991b1b';
+    el.textContent      = msg;
+  }
+
   try {
     const result = await apiPost({ action: 'returnBook', id: bookId });
-    if (!result.ok) {
-      const mesajEl = document.getElementById('detayMesaj');
-      if (mesajEl) {
-        mesajEl.style.display    = 'block';
-        mesajEl.style.background = '#fee2e2';
-        mesajEl.style.color      = '#991b1b';
-        mesajEl.textContent      = result.error || 'İade hatası';
-      } else {
-        listeMesaj(result.error || 'İade hatası', 'error');
-      }
+    if (!result.ok) { _detayHata(result.error || 'İade hatası'); return; }
+
+    // Refresh underlying data (rebuilds books, gruplar, _dispGrup via renderList)
+    await loadBooks();
+
+    // Find the same group in the refreshed _dispGrup
+    const newIdx = grupKey != null
+      ? _dispGrup.findIndex(g => g.grupKey === grupKey)
+      : -1;
+
+    if (newIdx < 0) {
+      // Group filtered out (all copies now RAFTA and filter hides it) — close gracefully
+      detayKapat();
+      listeMesaj(result.message || 'Kitap iade alındı', 'success');
       return;
     }
-    detayKapat();
-    listeMesaj(result.message || 'Kitap iade alındı', 'success');
-    await loadBooks();
-  } catch (err) {
+
+    _detayGrupIdx = newIdx;
+    const g = _dispGrup[newIdx];
+
+    // ── Patch badge in-place ────────────────────────────────────────
+    const badge    = _durumBadge(g);
+    const badgeEl  = document.getElementById('detayBadge');
+    if (badgeEl) {
+      badgeEl.style.background = badge.bg;
+      badgeEl.style.color      = badge.fg;
+      badgeEl.innerHTML        = `📚 ${g.toplam} adet &bull; ${guvenliYazi(badge.tekst)}`;
+    }
+
+    // ── Patch loan button in-place ──────────────────────────────────
+    const loanBtn = document.getElementById('detayLoanBtn');
+    if (loanBtn) {
+      if (g.rafta > 0) {
+        loanBtn.disabled         = false;
+        loanBtn.style.background = '#0b57d0';
+        loanBtn.style.color      = '#fff';
+        loanBtn.style.cursor     = 'pointer';
+        loanBtn.onclick          = _detayLoan;
+      } else {
+        loanBtn.disabled         = true;
+        loanBtn.style.background = '#e5e7eb';
+        loanBtn.style.color      = '#9ca3af';
+        loanBtn.style.cursor     = 'not-allowed';
+        loanBtn.onclick          = null;
+      }
+    }
+
+    // ── Re-render copy list ─────────────────────────────────────────
+    _kopyaListRender(g);
+
+    // ── Show inline success message, auto-hide ──────────────────────
     const mesajEl = document.getElementById('detayMesaj');
     if (mesajEl) {
       mesajEl.style.display    = 'block';
-      mesajEl.style.background = '#fee2e2';
-      mesajEl.style.color      = '#991b1b';
-      mesajEl.textContent      = 'İade hatası: ' + err.message;
+      mesajEl.style.background = '#d1fae5';
+      mesajEl.style.color      = '#065f46';
+      mesajEl.textContent      = result.message || 'Kitap iade alındı';
+      setTimeout(() => { if (mesajEl) mesajEl.style.display = 'none'; }, 2500);
     }
+
+  } catch (err) {
+    _detayHata('İade hatası: ' + err.message);
   }
 }
 
