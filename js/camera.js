@@ -1,7 +1,13 @@
-// js/camera.js — v7
-// v7: aspectRatio kaldırıldı — video konteynerle uyumlu render, zoom/crop yok.
-//     adaptif mod resetini camera.js kendi içinde yönetir (hizli_ekle.js çağırmasına gerek yok).
-//     onRestartNormal callback: dışarıya "normal moda döndüm" bildirimi.
+// js/camera.js — v8
+// v8: iPhone ISBN okuma stabilitesi iyileştirmeleri
+//   1. Çözünürlük: width ideal 1280 / height ideal 720 (hem kameraId hem facingMode)
+//   2. Autofocus: start() sonrası video track'e focusMode=continuous applyConstraints
+//      — desteklemiyorsa sessizce geçilir, hata vermez
+//   3. Tarama kutusu büyütüldü: genişlik %92, yükseklik %44 (ISBN için geniş alan)
+//   4. FPS: normal 12→18, adaptif 15→20
+//   5. aspectRatio yok (v7'den), iOS Safari zoom/crop olmaz
+// v7: aspectRatio kaldırıldı
+// v6: _isProcessing lock, onRestartNormal callback
 // v5: restartNormal() + isAdaptifAktif()
 // v4: EAN-13 checksum, adaptif 3s, cooldown 600ms
 
@@ -14,7 +20,7 @@ window.KutuphaneCamera = (function () {
   let isStarting            = false;
   let adaptifTimer          = null;
   let _adaptifAktif         = false;
-  let _isProcessing         = false; // v6: onDetected + olası restart tamamlanana kadar lock
+  let _isProcessing         = false;
   let _lastStartOpts        = null;
 
   // ── temizKod ──────────────────────────────────────────────────────────────
@@ -70,11 +76,39 @@ window.KutuphaneCamera = (function () {
     } catch (_) { return null; }
   }
 
+  // ── Video constraints: çözünürlük ekle ───────────────────────────────────
+  // kameraId varsa deviceId ile, yoksa facingMode ile — her iki halde ideal 1280x720
+  function _videoConstraints(kameraId) {
+    const res = { width: { ideal: 1280 }, height: { ideal: 720 } };
+    if (kameraId) {
+      return { deviceId: { exact: kameraId }, ...res };
+    }
+    return { facingMode: 'environment', ...res };
+  }
+
+  // ── Autofocus uygula (start() sonrası) ────────────────────────────────────
+  // focusMode = 'continuous' destekleniyorsa ayarla, yoksa sessizce geç.
+  // iOS Safari'de getCapabilities() yoktur; try/catch ile korunur.
+  function _autofocusUygula(readerId) {
+    setTimeout(() => {
+      try {
+        const videoEl = document.querySelector('#' + readerId + ' video');
+        const stream  = videoEl?.srcObject;
+        const track   = stream?.getVideoTracks?.()?.[0];
+        if (!track) return;
+        const caps = track.getCapabilities?.();
+        if (caps?.focusMode?.includes?.('continuous')) {
+          track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] })
+            .catch(() => {});
+        }
+      } catch (_) {}
+    }, 600); // kamera stream'in stabilize olmasını bekle
+  }
+
   // ── Config ─────────────────────────────────────────────────────────────────
   function _ortakAyarlar() {
     const base = {
-      // aspectRatio kaldırıldı (v7): kamera kendi native oranında akıyor,
-      // Html5Qrcode video elementi konteynere doğal oturur, zoom/crop olmaz
+      // aspectRatio YOK (v7): native oran, zoom/crop olmaz
       disableFlip: false,
       rememberLastUsedCamera: true,
       showTorchButtonIfSupported: true,
@@ -98,11 +132,11 @@ window.KutuphaneCamera = (function () {
   function varsayilanConfig() {
     return {
       ..._ortakAyarlar(),
-      fps: 12,
+      fps: 18, // v8: 12→18
       qrbox: (w, h) => {
-        // Konteyner yüksekliğine göre sığacak kadar geniş tarama kutusu
-        const bw = Math.min(Math.round(w * 0.90), 380);
-        const bh = Math.min(Math.round(bw * 0.38), Math.round(h * 0.70));
+        // ISBN barkodları yatay — geniş ve yeterince yüksek alan
+        const bw = Math.min(Math.round(w * 0.92), 420);
+        const bh = Math.min(Math.round(bw * 0.44), Math.round(h * 0.72));
         return { width: bw, height: bh };
       }
     };
@@ -111,9 +145,9 @@ window.KutuphaneCamera = (function () {
   function kucukBarkodConfig() {
     return {
       ..._ortakAyarlar(),
-      fps: 15,
+      fps: 20, // v8: 15→20
       qrbox: (w, _h) => {
-        const bw = Math.min(Math.round(w * 0.58), 215);
+        const bw = Math.min(Math.round(w * 0.62), 240);
         return { width: bw, height: Math.round(bw * 0.43) };
       }
     };
@@ -134,7 +168,7 @@ window.KutuphaneCamera = (function () {
     clearTimeout(adaptifTimer);
     adaptifTimer    = null;
     _adaptifAktif   = false;
-    _isProcessing   = false; // v6
+    _isProcessing   = false;
     _lastStartOpts  = null;
     await _stopInner();
     lastScannedCode = '';
@@ -169,30 +203,22 @@ window.KutuphaneCamera = (function () {
     activeReader          = new Html5Qrcode(readerId);
     activeReaderElementId = readerId;
 
-    const kameraId     = await enUygunArkaKameraIdBul();
-    const cameraConfig = kameraId || { facingMode: 'environment' };
-    // ignoreUntil: kamera start() sonrasında hesaplanmalı; start() async olduğundan
-    // burada 0 bırakıp start tamamlandıktan sonra timestamp alıyoruz
+    const kameraId        = await enUygunArkaKameraIdBul();
+    const videoConstraints = _videoConstraints(kameraId); // v8: çözünürlük dahil
+
     let ignoreUntil = 0;
 
     await activeReader.start(
-      cameraConfig,
+      videoConstraints,
       scanConfig,
       async decodedText => {
-        // 1. Restart cooldown — kamera yeni başladıysa ilk N ms yoksay
         if (ignoreUntil > 0 && Date.now() < ignoreUntil) return;
 
-        // 2. Uzunluk + checksum filtresi
         const temiz = temizKod(decodedText);
         if (!temiz || !_barkodGecerli(temiz)) return;
-
-        // 3. Aynı barkod koruması
         if (temiz === lastScannedCode) return;
-
-        // 4. v6: İşlem kilidi — bir onDetected tamamlanana kadar yeni decode kabul etme
         if (_isProcessing) return;
 
-        // ── Geçerli okuma ──
         _isProcessing   = true;
         clearTimeout(adaptifTimer);
         adaptifTimer    = null;
@@ -201,11 +227,10 @@ window.KutuphaneCamera = (function () {
         try {
           await onDetected(temiz);
 
-          // v6: hassas moddaysa otomatik normal moda dön (hizli_ekle.js çağırmasına gerek yok)
           if (_adaptifAktif) {
             _adaptifAktif = false;
             if (typeof _lastStartOpts?.onRestartNormal === 'function') {
-              _lastStartOpts.onRestartNormal(); // watermark sıfırla vs.
+              _lastStartOpts.onRestartNormal();
             }
             await _restartNormalInternal();
           }
@@ -218,8 +243,10 @@ window.KutuphaneCamera = (function () {
       }
     );
 
-    // start() tamamlandıktan SONRA cooldown başlat — böylece gerçek pencere korunur
     if (ignoreScanMs > 0) ignoreUntil = Date.now() + ignoreScanMs;
+
+    // v8: continuous autofocus — destekleniyorsa ayarla
+    _autofocusUygula(readerId);
   }
 
   // ── Dahili: normal moda dön (adaptif sonrası) ─────────────────────────────
@@ -245,8 +272,8 @@ window.KutuphaneCamera = (function () {
       wrapId,
       onDetected,
       onError,
-      onAdaptif,       // () → küçük mod aktifleşince
-      onRestartNormal, // () → normal moda dönünce (v6: watermark reset için)
+      onAdaptif,
+      onRestartNormal,
       adaptifMod,
       config
     } = options || {};
@@ -277,7 +304,7 @@ window.KutuphaneCamera = (function () {
     }
   }
 
-  // ── Dışa açık restartNormal (gerekirse harici çağrı için) ─────────────────
+  // ── Dışa açık restartNormal ───────────────────────────────────────────────
   async function restartNormal() {
     await _restartNormalInternal();
   }
@@ -291,7 +318,7 @@ window.KutuphaneCamera = (function () {
   window.addEventListener('pagehide',     async () => { await stop(); });
   window.addEventListener('beforeunload', async () => { await stop(); });
 
-  // ── Public API ─────────────────────────────────────────────────────────────
+  // ── Public API ────────────────────────────────────────────────────────────
   return {
     start,
     stop,
